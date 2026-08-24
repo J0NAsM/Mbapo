@@ -1548,6 +1548,17 @@ app.patch("/api/admin/users/:id", requireAdmin, async (req, res) => {
     })
     .safeParse(req.body);
   if (!input.success) return fail(res, "Cambio de usuario inválido");
+  if (accountsRepository) {
+    const result = await accountsRepository.updateByAdmin({
+      accountId: req.params.id,
+      changes: input.data,
+      adminId: req.admin.id,
+      createdAt: new Date().toISOString(),
+    });
+    if (result.error === "missing")
+      return fail(res, "Usuario no encontrado", 404);
+    return res.json(result.user);
+  }
   const db = await database();
   const user = db.authUsers.find((item) => item.id === req.params.id);
   if (!user) return fail(res, "Usuario no encontrado", 404);

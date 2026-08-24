@@ -18,7 +18,7 @@
 
 ## Pendiente técnico concreto
 
-- Terminar las escrituras PostgreSQL por agregado para cuentas, catálogo y moderación de reservas; creación, transiciones/cancelaciones, pago demo, retiros, mensajes, reseñas y verificaciones ya no escriben el snapshot.
+- Terminar las escrituras PostgreSQL por agregado para catálogo y moderación de reservas; cuentas, creación, transiciones/cancelaciones, pago demo, retiros, mensajes, reseñas y verificaciones ya no escriben el snapshot.
 - Ampliar la integración PostgreSQL para cubrir los nuevos comandos de reseña y verificación; CI ya levanta PostgreSQL 16 y localmente la prueba se omite sin `MBAPO_TEST_DATABASE_URL`.
 - Terminar la conversión de componentes React y los contratos de dominio a TypeScript.
 - Reemplazar los componentes visuales legacy que siguen en `src/main.jsx` después de validar la interfaz nueva.
@@ -77,7 +77,7 @@ La creación de reseñas en PostgreSQL valida y bloquea la reserva finalizada, e
 
 La autorización y liberación de pagos demo ahora se ejecutan en `server/persistence/bookings.js` como comandos PostgreSQL atómicos. Cada operación bloquea la reserva y los perfiles afectados, escribe billetera, movimientos, auditoría, aviso interno e idempotencia en una única transacción; una repetición no puede acreditar ni debitar dos veces. `test/postgres.integration.test.js` cubre autorización concurrente, liberación repetida y la reserva completada resultante.
 
-Siguiente paso: migrar la moderación de cuentas y reservas, que aún usa el adaptador transitorio de snapshot en el modo PostgreSQL.
+Siguiente paso: migrar la moderación de reservas y el catálogo administrativo, que aún usan el adaptador transitorio de snapshot en el modo PostgreSQL.
 
 `server/domain/availability.js` concentra el cálculo de franjas, disponibilidad semanal y solapamientos de reservas. Sus pruebas unitarias cubren límites de horario y días sin disponibilidad; la API conserva estas mismas reglas.
 
@@ -88,6 +88,8 @@ Las transiciones y cancelaciones de reservas también se resuelven por agregado 
 `server/persistence/wallet.js` persiste los retiros demo por entidad: bloquea el perfil, comprueba saldo, escribe el movimiento y la auditoría junto con la respuesta idempotente. No existe integración de dinero real ni proveedor de payouts hasta que se configure explícitamente.
 
 La resolución administrativa de verificaciones dejó también el snapshot: bloquea la solicitud pendiente, actualiza identidad o perfil profesional aprobado, inserta auditoría y avisa a la cuenta en una transacción PostgreSQL.
+
+La moderación de cuentas usa `server/persistence/accounts.js`: el cambio de rol, verificación o bloqueo bloquea cuenta y perfil, rota `tokenVersion` cuando corresponde y registra auditoría sin sobrescribir otros agregados.
 
 La integración PostgreSQL repite una reserva con la misma `Idempotency-Key` y exige la cabecera `Idempotency-Replayed`, para detectar duplicación accidental en este comando.
 

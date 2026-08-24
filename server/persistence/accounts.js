@@ -37,5 +37,91 @@ export function createAccountsRepository(pool) {
         total: total.rows[0].total,
       };
     },
+    async updateByAdmin(input) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const accountResult = await client.query(
+          "SELECT id, name, email, role, verified, status, token_version, created_at FROM accounts WHERE id = $1 FOR UPDATE",
+          [input.accountId],
+        );
+        const account = accountResult.rows[0];
+        if (!account) {
+          await client.query("COMMIT");
+          return { error: "missing" };
+        }
+        const role = input.changes.role ?? account.role;
+        const verified = input.changes.verified ?? account.verified;
+        const status = input.changes.status ?? account.status;
+        const tokenVersion =
+          Number(account.token_version || 0) +
+          (role !== account.role || status !== account.status ? 1 : 0);
+        await client.query(
+          "UPDATE accounts SET role = $2, verified = $3, status = $4, token_version = $5 WHERE id = $1",
+          [input.accountId, role, verified, status, tokenVersion],
+        );
+        const profileResult = await client.query(
+          "SELECT payload FROM user_profiles WHERE account_id = $1 FOR UPDATE",
+          [input.accountId],
+        );
+        if (profileResult.rows[0])
+          await client.query(
+            "UPDATE user_profiles SET payload = $2::jsonb, updated_at = now() WHERE account_id = $1",
+            [
+              input.accountId,
+              JSON.stringify({
+                ...profileResult.rows[0].payload,
+                role,
+                verified,
+              }),
+            ],
+          );
+        await client.query("LOCK TABLE audit_log IN EXCLUSIVE MODE");
+        const auditId = Number(
+          (
+            await client.query(
+              "SELECT COALESCE(MAX(id), 0) + 1 AS id FROM audit_log",
+            )
+          ).rows[0].id,
+        );
+        await client.query(
+          "INSERT INTO audit_log (id, payload, actor_account_id) VALUES ($1,$2::jsonb,$3)",
+          [
+            auditId,
+            JSON.stringify({
+              id: auditId,
+              actorId: input.adminId,
+              action: "user.updated",
+              entity: "account",
+              entityId: input.accountId,
+              metadata: {
+                ...input.changes,
+                tokenVersionRotated: tokenVersion !== account.token_version,
+              },
+              createdAt: input.createdAt,
+            }),
+            input.adminId,
+          ],
+        );
+        await client.query("COMMIT");
+        return {
+          user: {
+            id: account.id,
+            name: account.name,
+            email: account.email,
+            role,
+            verified,
+            status,
+            tokenVersion,
+            createdAt: account.created_at,
+          },
+        };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
   };
 }
