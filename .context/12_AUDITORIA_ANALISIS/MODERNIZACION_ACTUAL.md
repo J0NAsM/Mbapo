@@ -95,6 +95,8 @@ El logout usa el mismo repositorio de cuentas en PostgreSQL: rota `tokenVersion`
 
 La moderación administrativa de reservas usa el mismo agregado PostgreSQL de reservas, con auditoría e idempotencia. La asignación de dueño de un perfil profesional y la configuración de plataforma también escriben ahora sus filas relacionales de forma directa; la asignación serializa la tabla de profesionales para impedir vínculos duplicados durante la transición del esquema.
 
+El onboarding profesional y `PUT /api/professional/availability` usan ahora operaciones PostgreSQL por entidad: crean o actualizan el perfil, migran rol y token cuando corresponde, y registran disponibilidad y auditoría sin reescribir el estado completo.
+
 `src/components/AdminPanel.tsx` extrae el panel administrativo real a TypeScript estricto, con contratos para estado, métricas, cuentas, profesionales, trabajos, verificaciones y configuración. Conserva deliberadamente el token administrativo aislado de la sesión normal, la recarga posterior a mutaciones y la búsqueda paginada con debounce.
 
 `GET /api/professionals/:professionalId/availability?date=YYYY-MM-DD` entrega franjas libres calculadas desde la disponibilidad semanal y reservas activas. El formulario de reserva consulta ese contrato al elegir fecha, evita horarios fijos y conserva la validación final de solapamientos en el servidor.

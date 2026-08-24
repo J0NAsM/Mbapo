@@ -1251,6 +1251,32 @@ const withdrawalInput = z.object({
 app.post("/api/professional/onboarding", requireAuth, async (req, res) => {
   const input = professionalOnboardingInput.safeParse(req.body);
   if (!input.success) return fail(res, "Datos profesionales invÃ¡lidos");
+  if (catalogRepository) {
+    const result = await catalogRepository.onboardProfessional({
+      accountId: req.account.id,
+      details: input.data,
+      initials: initialsFor(req.profile.name),
+      createdAt: new Date().toISOString(),
+    });
+    if (result.error === "account")
+      return fail(res, "La sesión ya no es válida", 401);
+    if (result.error === "role")
+      return fail(res, "Esta cuenta no puede iniciar el onboarding", 409);
+    const body = {
+      professional: result.professional,
+      user: result.user,
+      ...(result.created
+        ? {
+            token: signToken({
+              sub: req.account.id,
+              ver: result.user.tokenVersion,
+              exp: Date.now() + 86400000,
+            }),
+          }
+        : {}),
+    };
+    return res.status(result.created ? 201 : 200).json(body);
+  }
   const db = req.db;
   const existing = professionalForAccount(db, req.account);
   if (existing) {
@@ -1313,6 +1339,20 @@ app.put("/api/professional/availability", requireAuth, async (req, res) => {
     .max(28)
     .safeParse(req.body);
   if (!input.success) return fail(res, "Disponibilidad invÃ¡lida");
+  if (catalogRepository) {
+    const result = await catalogRepository.updateOwnAvailability({
+      accountId: req.account.id,
+      availability: input.data,
+      createdAt: new Date().toISOString(),
+    });
+    if (result.error === "missing")
+      return fail(
+        res,
+        "Tu cuenta profesional aún no está vinculada a un perfil",
+        403,
+      );
+    return res.json({ availability: result.availability });
+  }
   professional.availability = input.data;
   audit(
     req.db,

@@ -270,6 +270,67 @@ test(
         },
       );
       assert.equal(ownerChange.status, 200);
+
+      const onboardingRegistration = await fetch(`${url}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Onboarding PostgreSQL",
+          email: `onboarding-${Date.now()}@example.com`,
+          password: "password-onboarding-postgres-123",
+        }),
+      });
+      assert.equal(onboardingRegistration.status, 201);
+      const onboardingAccount = await onboardingRegistration.json();
+      const onboardingDate = "2037-05-19";
+      const onboarding = await fetch(`${url}/api/professional/onboarding`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${onboardingAccount.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          role: "Electricista residencial",
+          price: 120000,
+          tags: ["Electricidad", "Urgencias"],
+          serviceAreas: ["Asunción"],
+          text: "Instalaciones y reparaciones eléctricas responsables.",
+          availability: [
+            {
+              day: new Date(`${onboardingDate}T12:00:00`).getDay(),
+              start: "08:00",
+              end: "18:00",
+            },
+          ],
+        }),
+      });
+      assert.equal(onboarding.status, 201);
+      const onboarded = await onboarding.json();
+      assert.equal(onboarded.user.role, "professional");
+      const availabilityUpdate = await fetch(
+        `${url}/api/professional/availability`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${onboarded.token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify([
+            {
+              day: new Date(`${onboardingDate}T12:00:00`).getDay(),
+              start: "09:00",
+              end: "17:00",
+            },
+          ]),
+        },
+      );
+      assert.equal(availabilityUpdate.status, 200);
+      const onboardedSlots = await fetch(
+        `${url}/api/professionals/${onboarded.professional.id}/availability?date=${onboardingDate}`,
+      );
+      assert.equal(onboardedSlots.status, 200);
+      assert.ok((await onboardedSlots.json()).slots.includes("09:00 - 11:00"));
+
       const professionalLogin = await fetch(`${url}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
