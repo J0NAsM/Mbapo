@@ -254,6 +254,87 @@ function App() {
     minRating: 0,
     maxPrice: 0,
   });
+  const [catalog, setCatalog] = useState(null);
+  const [catalogPage, setCatalogPage] = useState(1);
+  const [catalogSort, setCatalogSort] = useState("rating");
+
+  useEffect(() => {
+    setCatalogPage(1);
+  }, [
+    category,
+    filters.available,
+    filters.maxPrice,
+    filters.minRating,
+    filters.verified,
+    query,
+  ]);
+  useEffect(() => {
+    let current = true;
+    const terms = query
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+    const aliases =
+      terms.includes("heladera") || terms.includes("aire")
+        ? "refrigeracion"
+        : terms.includes("auto") || terms.includes("mecan")
+          ? "mecanica"
+          : terms.includes("perdida") || terms.includes("canilla")
+            ? "plomeria"
+            : terms.includes("luz") || terms.includes("enchufe")
+              ? "electricista"
+              : terms;
+    const categoryTerms = {
+      Electricidad: "electric",
+      Plomería: "plomer",
+      Mecánica: "mecanic",
+      Refrigeración: "refriger",
+      Construcción: "constru",
+      Limpieza: "limp",
+      Educación: "profesor",
+    };
+    const params = new URLSearchParams({
+      q: [aliases, categoryTerms[category] || ""].filter(Boolean).join(" "),
+      page: String(catalogPage),
+      limit: "8",
+      sort: catalogSort,
+    });
+    if (["price", "distance", "name"].includes(catalogSort))
+      params.set("direction", "asc");
+    if (filters.available) params.set("available", "true");
+    if (filters.verified) params.set("verified", "true");
+    if (filters.minRating) params.set("minRating", String(filters.minRating));
+    if (filters.maxPrice) params.set("maxPrice", String(filters.maxPrice));
+    apiFetch(`/api/professionals?${params}`)
+      .then(async (response) => {
+        if (!response.ok) throw Error();
+        const items = await response.json();
+        if (current)
+          setCatalog({
+            items,
+            page: Number(response.headers.get("X-Page") || catalogPage),
+            pageSize: Number(response.headers.get("X-Page-Size") || 8),
+            total: Number(
+              response.headers.get("X-Total-Count") || items.length,
+            ),
+          });
+      })
+      .catch(() => {
+        if (current) setCatalog(null);
+      });
+    return () => {
+      current = false;
+    };
+  }, [
+    catalogPage,
+    catalogSort,
+    category,
+    filters.available,
+    filters.maxPrice,
+    filters.minRating,
+    filters.verified,
+    query,
+  ]);
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -339,6 +420,7 @@ function App() {
       }),
     [dashboard.professionals, query, category, filters],
   );
+  const visibleProfessionals = catalog?.items || filtered;
 
   const announce = (text) => {
     setNotice(text);
@@ -526,7 +608,12 @@ function App() {
         )}
         {view === "discover" && role !== "professional" && (
           <Discover
-            filtered={filtered}
+            visibleProfessionals={visibleProfessionals}
+            catalog={catalog}
+            catalogPage={catalogPage}
+            setCatalogPage={setCatalogPage}
+            catalogSort={catalogSort}
+            setCatalogSort={setCatalogSort}
             query={query}
             setQuery={setQuery}
             category={category}
@@ -557,7 +644,12 @@ function App() {
         )}
         {view === "search" && (
           <Discover
-            filtered={filtered}
+            visibleProfessionals={visibleProfessionals}
+            catalog={catalog}
+            catalogPage={catalogPage}
+            setCatalogPage={setCatalogPage}
+            catalogSort={catalogSort}
+            setCatalogSort={setCatalogSort}
             query={query}
             setQuery={setQuery}
             category={category}
@@ -684,7 +776,12 @@ function App() {
 }
 
 function Discover({
-  filtered,
+  visibleProfessionals,
+  catalog,
+  catalogPage,
+  setCatalogPage,
+  catalogSort,
+  setCatalogSort,
   query,
   setQuery,
   category,
@@ -883,12 +980,21 @@ function Discover({
           <h2>Profesionales cerca de vos</h2>
           <p>Seleccionados por su experiencia y reputación.</p>
         </div>
-        <button className="link-btn" onClick={() => setCategory("Todos")}>
-          Ver todos <span>→</span>
-        </button>
+        <label className="catalog-sort">
+          Ordenar
+          <select
+            value={catalogSort}
+            onChange={(event) => setCatalogSort(event.target.value)}
+          >
+            <option value="rating">Mejor valorados</option>
+            <option value="price">Menor precio</option>
+            <option value="distance">Más cercanos</option>
+            <option value="name">Nombre</option>
+          </select>
+        </label>
       </section>
       <div className="pro-grid">
-        {filtered.map((p) => (
+        {visibleProfessionals.map((p) => (
           <article className="pro-card" key={p.id}>
             <div className="card-top">
               <Avatar person={p} />
@@ -945,10 +1051,32 @@ function Discover({
           </article>
         ))}
       </div>
-      {filtered.length === 0 && (
+      {visibleProfessionals.length === 0 && (
         <div className="empty">
           No encontramos profesionales con esa búsqueda. Probá otra categoría.
         </div>
+      )}
+      {catalog && catalog.total > catalog.pageSize && (
+        <nav className="catalog-pagination" aria-label="Paginación">
+          <button
+            className="filter"
+            disabled={catalogPage <= 1}
+            onClick={() => setCatalogPage((page) => Math.max(1, page - 1))}
+          >
+            Anterior
+          </button>
+          <span>
+            Página {catalog.page} de{" "}
+            {Math.ceil(catalog.total / catalog.pageSize)}
+          </span>
+          <button
+            className="filter"
+            disabled={catalogPage * catalog.pageSize >= catalog.total}
+            onClick={() => setCatalogPage((page) => page + 1)}
+          >
+            Siguiente
+          </button>
+        </nav>
       )}
       <section className="trust-strip">
         <span className="shield">✓</span>

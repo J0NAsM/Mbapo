@@ -20,10 +20,15 @@ after(async () => {
 });
 
 test("protege el dashboard y aísla datos de una nueva cuenta", async () => {
-  const catalog = await fetch(`${url}/api/professionals?sort=price&limit=2`);
+  const catalog = await fetch(
+    `${url}/api/professionals?sort=price&direction=asc&limit=2`,
+  );
   assert.equal(catalog.status, 200);
   assert.equal(catalog.headers.get("x-total-count"), "4");
-  assert.equal((await catalog.json()).length, 2);
+  assert.equal(catalog.headers.get("x-page"), "1");
+  const catalogItems = await catalog.json();
+  assert.equal(catalogItems.length, 2);
+  assert.ok(catalogItems[0].price <= catalogItems[1].price);
 
   const denied = await fetch(`${url}/api/dashboard`);
   assert.equal(denied.status, 401);

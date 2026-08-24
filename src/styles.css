@@ -425,6 +425,34 @@ main {
   font-size: 12px;
   margin: 0;
 }
+.catalog-sort {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.catalog-sort select {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+.catalog-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin: 24px 54px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.catalog-pagination .filter:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
 .link-btn {
   border: 0;
   background: none;
