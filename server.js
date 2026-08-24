@@ -22,6 +22,7 @@ import { createReviewsRepository } from "./server/persistence/reviews.js";
 import { createVerificationsRepository } from "./server/persistence/verifications.js";
 import { createBookingsRepository } from "./server/persistence/bookings.js";
 import { createWalletRepository } from "./server/persistence/wallet.js";
+import { createPlatformRepository } from "./server/persistence/platform.js";
 import { createCatalogRepository } from "./server/persistence/catalog.js";
 import { createAccountsRepository } from "./server/persistence/accounts.js";
 import {
@@ -160,6 +161,7 @@ const reviewsRepository = createReviewsRepository(pool);
 const verificationsRepository = createVerificationsRepository(pool);
 const bookingsRepository = createBookingsRepository(pool);
 const walletRepository = createWalletRepository(pool);
+const platformRepository = createPlatformRepository(pool);
 const catalogRepository = createCatalogRepository(pool);
 const accountsRepository = createAccountsRepository(pool);
 const stripe = process.env.STRIPE_SECRET_KEY
@@ -1368,6 +1370,14 @@ app.put("/api/admin/platform", requireAdmin, async (req, res) => {
   });
   const result = schema.safeParse(req.body);
   if (!result.success) return fail(res, "Configuración inválida");
+  if (platformRepository) {
+    const updated = await platformRepository.update({
+      platform: result.data,
+      adminId: req.admin.id,
+      createdAt: new Date().toISOString(),
+    });
+    return res.json(updated.platform);
+  }
   const db = await database();
   db.platform = result.data;
   await save(db);
@@ -1419,6 +1429,23 @@ app.patch(
       .object({ accountId: z.string().min(1).max(100).nullable() })
       .safeParse(req.body);
     if (!input.success) return fail(res, "Vinculación de profesional inválida");
+    if (catalogRepository) {
+      const result = await catalogRepository.setProfessionalOwner({
+        professionalId: Number(req.params.id),
+        accountId: input.data.accountId,
+        adminId: req.admin.id,
+        createdAt: new Date().toISOString(),
+      });
+      if (result.error === "professional")
+        return fail(res, "Profesional no encontrado", 404);
+      if (result.error === "account")
+        return fail(res, "Cuenta no encontrada", 404);
+      if (result.error === "role")
+        return fail(res, "La cuenta debe tener rol profesional", 409);
+      if (result.error === "owned")
+        return fail(res, "La cuenta ya está vinculada a otro perfil", 409);
+      return res.json(result.professional);
+    }
     const db = await database();
     const professional = db.professionals.find(
       (item) => item.id === Number(req.params.id),
@@ -1514,6 +1541,32 @@ app.patch("/api/admin/bookings/:id/status", requireAdmin, async (req, res) => {
     "Cancelada",
   ];
   if (!allowed.includes(status)) return fail(res, "Estado no válido");
+  const idempotency = bookingsRepository
+    ? persistedIdempotency(req, res)
+    : null;
+  if (bookingsRepository && idempotency === false) return;
+  if (bookingsRepository) {
+    const result = await bookingsRepository.transitionForAdmin({
+      bookingId: Number(req.params.id),
+      status,
+      adminId: req.admin.id,
+      createdAt: new Date().toISOString(),
+      idempotency,
+    });
+    if (result.replayed) {
+      res.setHeader("Idempotency-Replayed", "true");
+      return res.status(result.status).json(result.body);
+    }
+    if (result.error === "missing")
+      return fail(res, "Reserva no encontrada", 404);
+    if (result.error === "status") return fail(res, "Estado no válido");
+    if (result.error === "payment_required")
+      return fail(
+        res,
+        "El pago debe estar autorizado antes de solicitar confirmación",
+      );
+    return res.json(result.booking);
+  }
   const db = await database();
   const booking = db.bookings.find((item) => item.id === Number(req.params.id));
   if (!booking) return fail(res, "Reserva no encontrada", 404);

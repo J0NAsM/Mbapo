@@ -685,5 +685,70 @@ export function createBookingsRepository(pool) {
         client.release();
       }
     },
+    async transitionForAdmin(input) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const replay = await replayIdempotency(client, input.idempotency);
+        if (replay) {
+          await client.query("COMMIT");
+          return replay;
+        }
+        const bookingResult = await client.query(
+          "SELECT payload FROM bookings WHERE id = $1 FOR UPDATE",
+          [input.bookingId],
+        );
+        const booking = bookingResult.rows[0]?.payload;
+        if (!booking) {
+          await client.query("COMMIT");
+          return { error: "missing" };
+        }
+        const allowed = [
+          "Profesional confirmado",
+          "Trabajo en curso",
+          "Esperando tu confirmación",
+          "Cancelada",
+        ];
+        if (!allowed.includes(input.status)) {
+          await client.query("COMMIT");
+          return { error: "status" };
+        }
+        if (
+          input.status === "Esperando tu confirmación" &&
+          !["authorized", "demo_authorized"].includes(booking.paymentStatus)
+        ) {
+          await client.query("COMMIT");
+          return { error: "payment_required" };
+        }
+        const nextBooking = {
+          ...booking,
+          status: input.status,
+          timeline: [
+            ...(booking.timeline || []),
+            { status: input.status, at: input.createdAt, by: input.adminId },
+          ],
+        };
+        await client.query(
+          "UPDATE bookings SET payload = $2::jsonb, updated_at = now() WHERE id = $1",
+          [booking.id, JSON.stringify(nextBooking)],
+        );
+        await appendAudit(client, {
+          actorId: input.adminId,
+          action: "booking.status_changed",
+          entity: "booking",
+          entityId: String(booking.id),
+          metadata: { status: input.status },
+          createdAt: input.createdAt,
+        });
+        await rememberIdempotency(client, input.idempotency, 200, nextBooking);
+        await client.query("COMMIT");
+        return { booking: nextBooking };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
   };
 }

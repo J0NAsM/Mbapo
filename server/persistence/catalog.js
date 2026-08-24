@@ -88,5 +88,93 @@ export function createCatalogRepository(pool) {
         total: total.rows[0].total,
       };
     },
+    async setProfessionalOwner(input) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("LOCK TABLE professionals IN EXCLUSIVE MODE");
+        const professionalResult = await client.query(
+          "SELECT payload FROM professionals WHERE id = $1 FOR UPDATE",
+          [input.professionalId],
+        );
+        const professional = professionalResult.rows[0]?.payload;
+        if (!professional) {
+          await client.query("COMMIT");
+          return { error: "professional" };
+        }
+        let account = null;
+        if (input.accountId) {
+          const accountResult = await client.query(
+            "SELECT id, role FROM accounts WHERE id = $1 FOR SHARE",
+            [input.accountId],
+          );
+          account = accountResult.rows[0];
+          if (!account) {
+            await client.query("COMMIT");
+            return { error: "account" };
+          }
+          if (account.role !== "professional") {
+            await client.query("COMMIT");
+            return { error: "role" };
+          }
+          const duplicate = await client.query(
+            "SELECT 1 FROM professionals WHERE owner_account_id = $1 AND id <> $2",
+            [account.id, input.professionalId],
+          );
+          if (duplicate.rowCount) {
+            await client.query("COMMIT");
+            return { error: "owned" };
+          }
+        }
+        const nextProfessional = {
+          ...professional,
+          ownerId: account?.id || null,
+        };
+        await client.query(
+          "UPDATE professionals SET payload = $2::jsonb, owner_account_id = $3, updated_at = now() WHERE id = $1",
+          [
+            input.professionalId,
+            JSON.stringify(nextProfessional),
+            account?.id || null,
+          ],
+        );
+        await client.query("LOCK TABLE audit_log IN EXCLUSIVE MODE");
+        const auditId = Number(
+          (
+            await client.query(
+              "SELECT COALESCE(MAX(id), 0) + 1 AS id FROM audit_log",
+            )
+          ).rows[0].id,
+        );
+        await client.query(
+          "INSERT INTO audit_log (id, payload, actor_account_id) VALUES ($1,$2::jsonb,$3)",
+          [
+            auditId,
+            JSON.stringify({
+              id: auditId,
+              actorId: input.adminId,
+              action: "professional.owner_changed",
+              entity: "professional",
+              entityId: String(input.professionalId),
+              metadata: { accountId: account?.id || null },
+              createdAt: input.createdAt,
+            }),
+            input.adminId,
+          ],
+        );
+        await client.query("COMMIT");
+        return {
+          professional: {
+            id: input.professionalId,
+            ownerId: account?.id || null,
+          },
+        };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
   };
 }

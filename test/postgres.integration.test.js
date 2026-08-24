@@ -70,6 +70,7 @@ test(
         }),
       });
       assert.equal(replayedBooking.status, 201);
+      const secondaryBooking = await replayedBooking.json();
       const replay = await fetch(`${url}/api/bookings`, {
         method: "POST",
         headers: {
@@ -165,6 +166,53 @@ test(
       );
       assert.equal(accountSearch.status, 200);
       assert.equal((await accountSearch.json()).total, 1);
+      const platformUpdate = await fetch(`${url}/api/admin/platform`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${admin.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          commissionRate: 10,
+          currency: "PYG",
+          supportEmail: "soporte@example.com",
+          categories: ["Electricidad"],
+          content: {
+            heroEyebrow: "SERVICIOS QUE DAN TRANQUILIDAD",
+            heroTitle: "Encontrá a la persona indicada para el trabajo.",
+            heroDescription: "Profesionales verificados y pagos protegidos.",
+          },
+        }),
+      });
+      assert.equal(platformUpdate.status, 200);
+      assert.equal((await platformUpdate.json()).commissionRate, 10);
+      const adminBookingHeaders = {
+        Authorization: `Bearer ${admin.token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "postgres-admin-booking-idempotency-001",
+      };
+      const adminCancellation = await fetch(
+        `${url}/api/admin/bookings/${secondaryBooking.id}/status`,
+        {
+          method: "PATCH",
+          headers: adminBookingHeaders,
+          body: JSON.stringify({ status: "Cancelada" }),
+        },
+      );
+      assert.equal(adminCancellation.status, 200);
+      const adminCancellationReplay = await fetch(
+        `${url}/api/admin/bookings/${secondaryBooking.id}/status`,
+        {
+          method: "PATCH",
+          headers: adminBookingHeaders,
+          body: JSON.stringify({ status: "Cancelada" }),
+        },
+      );
+      assert.equal(adminCancellationReplay.status, 200);
+      assert.equal(
+        adminCancellationReplay.headers.get("idempotency-replayed"),
+        "true",
+      );
       const verificationResolution = await fetch(
         `${url}/api/admin/verifications/${verificationRequest.id}`,
         {
