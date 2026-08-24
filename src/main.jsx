@@ -8,6 +8,7 @@ import { Avatar, Stars } from "./components/Identity";
 import { Wallet } from "./components/Wallet";
 import { ProfessionalHome } from "./components/ProfessionalHome";
 import { VerificationRequests } from "./components/VerificationRequests";
+import AdminPanel from "./components/AdminPanel";
 import "./styles.css";
 
 if ("serviceWorker" in navigator)
@@ -1990,7 +1991,9 @@ function AdminAccess({ onLogin }) {
   );
 }
 
-function AdminPanel({ session, onLogout, announce }) {
+// Kept during the staged migration until the extracted panel is runtime-verified.
+// eslint-disable-next-line no-unused-vars
+function LegacyAdminPanel({ session, onLogout, announce }) {
   const [state, setState] = useState(null);
   const [platformDraft, setPlatformDraft] = useState("");
   const [error, setError] = useState("");

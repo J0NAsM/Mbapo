@@ -21,7 +21,7 @@
 - Terminar las escrituras PostgreSQL por agregado para CRUD administrativo de catálogo; cuentas, moderación de reservas, creación, transiciones/cancelaciones, pago demo, retiros, mensajes, reseñas y verificaciones ya no escriben el snapshot.
 - Ampliar la integración PostgreSQL para cubrir los nuevos comandos de reseña y verificación; CI ya levanta PostgreSQL 16 y localmente la prueba se omite sin `MBAPO_TEST_DATABASE_URL`.
 - Terminar la conversión de componentes React y los contratos de dominio a TypeScript.
-- Reemplazar los componentes visuales legacy que siguen en `src/main.jsx` después de validar la interfaz nueva.
+- Eliminar los componentes visuales legacy aún retenidos como respaldo temporal en `src/main.jsx` después de validar la interfaz nueva.
 
 ## Archivos principales modificados
 
@@ -92,6 +92,8 @@ La resolución administrativa de verificaciones dejó también el snapshot: bloq
 La moderación de cuentas usa `server/persistence/accounts.js`: el cambio de rol, verificación o bloqueo bloquea cuenta y perfil, rota `tokenVersion` cuando corresponde y registra auditoría sin sobrescribir otros agregados.
 
 La moderación administrativa de reservas usa el mismo agregado PostgreSQL de reservas, con auditoría e idempotencia. La asignación de dueño de un perfil profesional y la configuración de plataforma también escriben ahora sus filas relacionales de forma directa; la asignación serializa la tabla de profesionales para impedir vínculos duplicados durante la transición del esquema.
+
+`src/components/AdminPanel.tsx` extrae el panel administrativo real a TypeScript estricto, con contratos para estado, métricas, cuentas, profesionales, trabajos, verificaciones y configuración. Conserva deliberadamente el token administrativo aislado de la sesión normal, la recarga posterior a mutaciones y la búsqueda paginada con debounce.
 
 La integración PostgreSQL repite una reserva con la misma `Idempotency-Key` y exige la cabecera `Idempotency-Replayed`, para detectar duplicación accidental en este comando.
 

@@ -50,3 +50,14 @@ test("la billetera comunica un estado vacío accesible", async () => {
   assert.match(source, /!transactions\.length/);
   assert.match(source, /role="status"/);
 });
+
+test("el panel administrativo se ejecuta desde el componente tipado", async () => {
+  const [app, panel] = await Promise.all([
+    readFile(resolve(root, "src/main.jsx"), "utf8"),
+    readFile(resolve(root, "src/components/AdminPanel.tsx"), "utf8"),
+  ]);
+  assert.match(app, /import AdminPanel from "\.\/components\/AdminPanel"/);
+  assert.match(panel, /type AdminPanelProps/);
+  assert.match(panel, /Authorization: `Bearer \$\{session\.token\}`/);
+  assert.match(panel, /\/api\/admin\/users/);
+});
