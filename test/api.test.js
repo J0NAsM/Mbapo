@@ -30,6 +30,11 @@ test("protege el dashboard y aísla datos de una nueva cuenta", async () => {
   assert.equal(catalogItems.length, 2);
   assert.ok(catalogItems[0].price <= catalogItems[1].price);
 
+  const jobCatalog = await fetch(`${url}/api/jobs?sort=budget&limit=2`);
+  assert.equal(jobCatalog.status, 200);
+  assert.equal(jobCatalog.headers.get("x-total-count"), "3");
+  assert.equal((await jobCatalog.json())[0].title, "Pintar living y pasillo");
+
   const denied = await fetch(`${url}/api/dashboard`);
   assert.equal(denied.status, 401);
 

@@ -32,3 +32,5 @@ Siguiente paso: separar repositorios PostgreSQL por agregado y sumar una prueba 
 ActualizaciÃ³n de modularizaciÃ³n: `server/observability.js` concentra request IDs, logs estructurados y mÃ©tricas; `server/persistence/migrations.js` aplica migraciones en transacciÃ³n. `src/lib/datetime.ts` inicia la extracciÃ³n de utilidades de interfaz tipadas. La prueba PostgreSQL queda habilitada en CI y se omite localmente sin `MBAPO_TEST_DATABASE_URL`.
 
 El descubrimiento consume el catÃ¡logo paginado real con filtros, orden y metadatos HTTP; el filtrado local queda solamente como respaldo cuando la API no responde. `server/persistence/notifications.js` opera la lectura y marcado de avisos directamente por entidad en PostgreSQL.
+
+La vista de trabajos tambiÃ©n consume `GET /api/jobs` con categorÃ­a, orden y paginaciÃ³n reales, conservando el listado del dashboard como respaldo sin conexiÃ³n.

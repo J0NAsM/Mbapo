@@ -652,6 +652,29 @@ main {
   display: grid;
   gap: 14px;
 }
+.job-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+}
+.job-controls label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.job-controls select {
+  border: 1px solid #d7dfdd;
+  border-radius: 6px;
+  padding: 7px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
 .job-card {
   background: #fff;
   border: 1px solid var(--line);

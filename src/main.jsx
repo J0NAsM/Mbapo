@@ -1100,6 +1100,44 @@ function Discover({
 }
 
 function Jobs({ setModal, announce, jobs: jobList }) {
+  const [remoteJobs, setRemoteJobs] = useState(null);
+  const [jobPage, setJobPage] = useState(1);
+  const [jobSort, setJobSort] = useState("recent");
+  const [jobCategory, setJobCategory] = useState("");
+  useEffect(() => {
+    setJobPage(1);
+  }, [jobCategory, jobSort]);
+  useEffect(() => {
+    let current = true;
+    const params = new URLSearchParams({
+      page: String(jobPage),
+      limit: "8",
+      sort: jobSort,
+    });
+    if (jobCategory) params.set("category", jobCategory);
+    apiFetch(`/api/jobs?${params}`)
+      .then(async (response) => {
+        if (!response.ok) throw Error();
+        const items = await response.json();
+        if (current)
+          setRemoteJobs({
+            items,
+            page: Number(response.headers.get("X-Page") || jobPage),
+            pageSize: Number(response.headers.get("X-Page-Size") || 8),
+            total: Number(
+              response.headers.get("X-Total-Count") || items.length,
+            ),
+          });
+      })
+      .catch(() => {
+        if (current) setRemoteJobs(null);
+      });
+    return () => {
+      current = false;
+    };
+  }, [jobCategory, jobPage, jobSort]);
+  const displayedJobs = remoteJobs?.items || jobList;
+  const categories = [...new Set(jobList.map((job) => job.category))].sort();
   const apply = async (job) => {
     try {
       const response = await apiFetch(`/api/jobs/${job.id}/applications`, {
@@ -1125,7 +1163,33 @@ function Jobs({ setModal, announce, jobs: jobList }) {
       </header>
       <div className="job-layout">
         <section className="job-list">
-          {jobList.map((j) => (
+          <div className="job-controls">
+            <label>
+              CategorÃ­a
+              <select
+                value={jobCategory}
+                onChange={(event) => setJobCategory(event.target.value)}
+              >
+                <option value="">Todas</option>
+                {categories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Ordenar
+              <select
+                value={jobSort}
+                onChange={(event) => setJobSort(event.target.value)}
+              >
+                <option value="recent">MÃ¡s recientes</option>
+                <option value="budget">Mayor presupuesto</option>
+              </select>
+            </label>
+          </div>
+          {displayedJobs.map((j) => (
             <article className="job-card" key={j.id}>
               <div className="job-meta">
                 <span>{j.category}</span>
@@ -1146,6 +1210,34 @@ function Jobs({ setModal, announce, jobs: jobList }) {
               </div>
             </article>
           ))}
+          {!displayedJobs.length && (
+            <div className="empty">No hay trabajos con esos filtros.</div>
+          )}
+          {remoteJobs && remoteJobs.total > remoteJobs.pageSize && (
+            <nav
+              className="catalog-pagination"
+              aria-label="PaginaciÃ³n de trabajos"
+            >
+              <button
+                className="filter"
+                disabled={jobPage <= 1}
+                onClick={() => setJobPage((page) => Math.max(1, page - 1))}
+              >
+                Anterior
+              </button>
+              <span>
+                PÃ¡gina {remoteJobs.page} de{" "}
+                {Math.ceil(remoteJobs.total / remoteJobs.pageSize)}
+              </span>
+              <button
+                className="filter"
+                disabled={jobPage * remoteJobs.pageSize >= remoteJobs.total}
+                onClick={() => setJobPage((page) => page + 1)}
+              >
+                Siguiente
+              </button>
+            </nav>
+          )}
         </section>
         <aside className="side-tip">
           <span>✦</span>
