@@ -10,6 +10,9 @@ import { ProfessionalHome } from "./components/ProfessionalHome";
 import { VerificationRequests } from "./components/VerificationRequests";
 import AdminPanel from "./components/AdminPanel";
 import BookingFlow from "./components/BookingFlow";
+import Discover from "./components/Discover";
+import Jobs from "./components/Jobs";
+import Profile from "./components/Profile";
 import ProfessionalOnboarding from "./components/ProfessionalOnboarding";
 import "./styles.css";
 
@@ -713,7 +716,9 @@ function App() {
   );
 }
 
-function Discover({
+// Kept during the staged migration until the extracted catalog is runtime-verified.
+// eslint-disable-next-line no-unused-vars
+function LegacyDiscover({
   visibleProfessionals,
   catalog,
   catalogPage,
@@ -1037,7 +1042,9 @@ function Discover({
   );
 }
 
-function Jobs({ setModal, announce, jobs: jobList }) {
+// Kept during the staged migration until the extracted jobs view is runtime-verified.
+// eslint-disable-next-line no-unused-vars
+function LegacyJobs({ setModal, announce, jobs: jobList }) {
   const [remoteJobs, setRemoteJobs] = useState(null);
   const [jobPage, setJobPage] = useState(1);
   const [jobSort, setJobSort] = useState("recent");
@@ -1315,7 +1322,9 @@ function LegacyOnboardingFlow({ close, announce, reload, onSession }) {
   );
 }
 
-function Profile({
+// Kept during the staged migration until the extracted profile is runtime-verified.
+// eslint-disable-next-line no-unused-vars
+function LegacyProfile({
   role,
   setRole,
   user,
