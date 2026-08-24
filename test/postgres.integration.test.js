@@ -136,6 +136,7 @@ test(
         body: JSON.stringify({ kind: "identity" }),
       });
       assert.equal(verification.status, 201);
+      const verificationRequest = await verification.json();
       const duplicateVerification = await fetch(`${url}/api/verifications`, {
         method: "POST",
         headers,
@@ -164,6 +165,19 @@ test(
       );
       assert.equal(accountSearch.status, 200);
       assert.equal((await accountSearch.json()).total, 1);
+      const verificationResolution = await fetch(
+        `${url}/api/admin/verifications/${verificationRequest.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${admin.token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ status: "approved" }),
+        },
+      );
+      assert.equal(verificationResolution.status, 200);
+      assert.equal((await verificationResolution.json()).status, "approved");
 
       const professionalRegistration = await fetch(`${url}/api/auth/register`, {
         method: "POST",

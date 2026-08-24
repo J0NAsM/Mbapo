@@ -1608,6 +1608,27 @@ app.patch("/api/admin/verifications/:id", requireAdmin, async (req, res) => {
     .safeParse(req.body);
   if (!input.success)
     return fail(res, "ResoluciÃ³n de verificaciÃ³n invÃ¡lida");
+  if (verificationsRepository) {
+    const result = await verificationsRepository.resolveWithEffects({
+      id: Number(req.params.id),
+      status: input.data.status,
+      adminId: req.admin.id,
+      createdAt: new Date().toISOString(),
+      notification: {
+        id: `ntf-${randomBytes(10).toString("hex")}`,
+        type: "verification.reviewed",
+        title: "Verificación actualizada",
+        body: `Tu solicitud de verificación fue ${input.data.status === "approved" ? "aprobada" : "rechazada"}.`,
+        readAt: null,
+        createdAt: new Date().toISOString(),
+      },
+    });
+    if (result.error === "missing")
+      return fail(res, "Solicitud no encontrada", 404);
+    if (result.error === "resolved")
+      return fail(res, "La solicitud ya fue resuelta", 409);
+    return res.json(result.verification);
+  }
   const db = await database();
   const verification = db.verifications.find(
     (item) => item.id === Number(req.params.id),
