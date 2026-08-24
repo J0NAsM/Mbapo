@@ -48,3 +48,5 @@ La vista de trabajos tambiÃ©n consume `GET /api/jobs` con categorÃ­a, orden 
 `server/persistence/catalog.js` ejecuta filtros, orden y paginación de profesionales y trabajos sobre PostgreSQL. La integración SQL cubre ambos catálogos además de los flujos autenticados ya existentes.
 
 `src/components/Messages.tsx` migra mensajería a TypeScript con contratos de hilo, interlocutor, mensaje y lectura. `App` ya no conserva estado de conversación ni envío de demostración; la pantalla consulta directamente las conversaciones reales.
+
+Se retiraron los componentes de demostración inactivos de mensajes, modal y calendario. La navegación de agenda renderiza directamente `BookingAgenda`, que opera reservas reales y acciones de pago demo.
