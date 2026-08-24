@@ -40,3 +40,5 @@ La vista de trabajos tambiÃ©n consume `GET /api/jobs` con categorÃ­a, orden 
 `server/persistence/reviews.js` pagina reseñas públicas directamente desde PostgreSQL y valida la existencia del profesional en la misma consulta por agregado.
 
 `server/persistence/verifications.js` entrega solicitudes propias y la cola administrativa paginada desde PostgreSQL; la transición de aprobación continúa protegida por las reglas actuales de cuenta y perfil profesional.
+
+`server/persistence/bookings.js` consulta reservas por cliente o profesional para el dashboard y la agenda profesional, evitando cargar esa colección desde el snapshot cuando PostgreSQL está configurado.

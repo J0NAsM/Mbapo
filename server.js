@@ -20,6 +20,7 @@ import { createNotificationsRepository } from "./server/persistence/notification
 import { createMessagesRepository } from "./server/persistence/messages.js";
 import { createReviewsRepository } from "./server/persistence/reviews.js";
 import { createVerificationsRepository } from "./server/persistence/verifications.js";
+import { createBookingsRepository } from "./server/persistence/bookings.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.MBAPO_DATA_PATH || join(root, "data", "mbapo.json");
@@ -148,6 +149,7 @@ const notificationsRepository = createNotificationsRepository(pool);
 const messagesRepository = createMessagesRepository(pool);
 const reviewsRepository = createReviewsRepository(pool);
 const verificationsRepository = createVerificationsRepository(pool);
+const bookingsRepository = createBookingsRepository(pool);
 const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
@@ -1697,6 +1699,9 @@ app.get("/api/dashboard", requireAuth, async (req, res) => {
         commissionRate: db.platform.commissionRate,
       }
     : undefined;
+  const bookings = bookingsRepository
+    ? await bookingsRepository.listForClient(req.account.id)
+    : (db.bookings || []).filter((item) => item.clientId === req.account.id);
   res.json({
     platform,
     professionals: db.professionals || [],
@@ -1707,9 +1712,7 @@ app.get("/api/dashboard", requireAuth, async (req, res) => {
     transactions: (db.transactions || []).filter(
       (item) => item.userId === req.account.id,
     ),
-    bookings: (db.bookings || []).filter(
-      (item) => item.clientId === req.account.id,
-    ),
+    bookings,
     messages: (db.messages || []).filter(
       (item) => item.clientId === req.account.id,
     ),
@@ -1915,16 +1918,18 @@ app.post("/api/jobs/:jobId/applications", requireAuth, async (req, res) => {
 app.get("/api/professional/dashboard", requireAuth, async (req, res) => {
   const professional = ownedProfessionalOrFail(req, res);
   if (!professional) return;
-  const bookings = req.db.bookings
-    .filter((booking) => booking.professionalId === professional.id)
-    .map((booking) => ({
-      ...booking,
-      place:
-        booking.status === "Esperando respuesta" ? undefined : booking.place,
-      client: req.db.userProfiles[booking.clientId]
-        ? { name: req.db.userProfiles[booking.clientId].name }
-        : undefined,
-    }));
+  const bookingItems = bookingsRepository
+    ? await bookingsRepository.listForProfessional(professional.id)
+    : req.db.bookings.filter(
+        (booking) => booking.professionalId === professional.id,
+      );
+  const bookings = bookingItems.map((booking) => ({
+    ...booking,
+    place: booking.status === "Esperando respuesta" ? undefined : booking.place,
+    client: req.db.userProfiles[booking.clientId]
+      ? { name: req.db.userProfiles[booking.clientId].name }
+      : undefined,
+  }));
   const conversations = req.db.messages.filter(
     (message) => message.professionalId === professional.id,
   );
