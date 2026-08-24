@@ -1413,13 +1413,29 @@ main {
   }
   .messages-page {
     grid-template-columns: 1fr;
-    height: auto;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: calc(100vh - 60px);
   }
   .threads {
+    display: flex;
+    gap: 7px;
+    overflow-x: auto;
+    padding: 9px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    scrollbar-width: thin;
+  }
+  .thread-head {
     display: none;
   }
+  .thread {
+    flex: 0 0 178px;
+    margin: 0;
+    padding: 9px;
+  }
   .chat {
-    height: calc(100vh - 60px);
+    height: auto;
+    min-height: 0;
   }
   .chat-body {
     padding: 18px;

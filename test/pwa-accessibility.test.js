@@ -35,3 +35,9 @@ test("la interfaz expone navegación y avisos accesibles", async () => {
   assert.match(source, /id="main-content"/);
   assert.match(source, /role="status" aria-live="polite"/);
 });
+
+test("la mensajería móvil conserva el selector de conversaciones", async () => {
+  const styles = await readFile(resolve(root, "src/styles.css"), "utf8");
+  assert.doesNotMatch(styles, /\.threads\s*\{\s*display:\s*none;/);
+  assert.match(styles, /\.threads\s*\{[\s\S]*?overflow-x:\s*auto;/);
+});
