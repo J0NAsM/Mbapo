@@ -18,8 +18,8 @@
 
 ## Pendiente técnico concreto
 
-- Extraer repositorios por agregado para que PostgreSQL no cargue el snapshot completo.
-- CI levanta PostgreSQL 16 y ejecuta una prueba de persistencia real; localmente se omite si no se define `MBAPO_TEST_DATABASE_URL`.
+- Terminar las escrituras PostgreSQL por agregado para reservas, pagos demo, retiros y moderación administrativa; mensajes, reseñas y altas de verificación ya no escriben el snapshot.
+- Ampliar la integración PostgreSQL para cubrir los nuevos comandos de reseña y verificación; CI ya levanta PostgreSQL 16 y localmente la prueba se omite sin `MBAPO_TEST_DATABASE_URL`.
 - Terminar la conversión de componentes React y los contratos de dominio a TypeScript.
 - Reemplazar los componentes visuales legacy que siguen en `src/main.jsx` después de validar la interfaz nueva.
 
@@ -27,7 +27,7 @@
 
 `server.js`, `src/main.jsx`, `src/lib/api.ts`, `database/migrations/002_account_status_notifications_idempotency.sql`, `database/migrations/003_stripe_webhook_events.sql`, `test/api.test.js`, `test/postgres.integration.test.js`.
 
-Siguiente paso: separar repositorios PostgreSQL por agregado y sumar una prueba de integraciÃ³n contra PostgreSQL real en CI. Los avisos internos ya tienen centro de lectura y eventos de reservas, pagos demo, mensajes, reseÃ±as y verificaciones.
+Siguiente paso: extraer la transacción de reservas y pagos demo, conservando disponibilidad, solapamientos, saldo, auditoría y avisos. Los avisos internos ya tienen centro de lectura y eventos de reservas, pagos demo, mensajes, reseñas y verificaciones.
 
 ActualizaciÃ³n de modularizaciÃ³n: `server/observability.js` concentra request IDs, logs estructurados y mÃ©tricas; `server/persistence/migrations.js` aplica migraciones en transacciÃ³n. `src/lib/datetime.ts` inicia la extracciÃ³n de utilidades de interfaz tipadas. La prueba PostgreSQL queda habilitada en CI y se omite localmente sin `MBAPO_TEST_DATABASE_URL`.
 
