@@ -62,15 +62,29 @@ test("protege el dashboard y aísla datos de una nueva cuenta", async () => {
   assert.equal("verifications" in data, false);
   assert.deepEqual(data.messages, []);
 
-  const logout = await fetch(`${url}/api/auth/logout`, {
+  const refresh = await fetch(`${url}/api/auth/refresh`, {
     method: "POST",
     headers: { Authorization: `Bearer ${session.token}` },
+  });
+  assert.equal(refresh.status, 200);
+  const refreshedSession = await refresh.json();
+  assert.equal(refreshedSession.user.id, session.user.id);
+  assert.ok(refreshedSession.token);
+
+  const logout = await fetch(`${url}/api/auth/logout`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${refreshedSession.token}` },
   });
   assert.equal(logout.status, 204);
   const revokedDashboard = await fetch(`${url}/api/dashboard`, {
     headers: { Authorization: `Bearer ${session.token}` },
   });
   assert.equal(revokedDashboard.status, 401);
+  const revokedRefresh = await fetch(`${url}/api/auth/refresh`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${refreshedSession.token}` },
+  });
+  assert.equal(revokedRefresh.status, 401);
 });
 
 test("el servidor impide postulación y cambios de reserva no autorizados", async () => {

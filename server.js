@@ -1148,6 +1148,16 @@ app.post("/api/auth/logout", requireAuth, async (req, res) => {
   await save(req.db);
   res.status(204).end();
 });
+app.post("/api/auth/refresh", requireAuth, (req, res) => {
+  res.json({
+    token: signToken({
+      sub: req.account.id,
+      ver: req.account.tokenVersion || 0,
+      exp: Date.now() + 86400000,
+    }),
+    user: publicUser(req.account),
+  });
+});
 const professionalInput = z.object({
   name: z.string().min(2).max(80),
   role: z.string().min(2).max(100),

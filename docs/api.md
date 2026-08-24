@@ -59,6 +59,7 @@ El catálogo `GET /api/professionals` admite `page`, `limit`, `sort` (`rating`, 
 Los webhooks de Stripe guardan cada `event.id` por 30 dÃ­as: una reentrega firmada responde `replayed: true` y no vuelve a ejecutar efectos. Las notificaciones internas cubren cambios de reserva, autorizaciones y liberaciones demo, mensajes, reseÃ±as y revisiones; email y push continÃºan desacoplados y sin configurar.
 
 - `POST /api/auth/logout` revoca la sesión actual mediante `tokenVersion`.
+- `POST /api/auth/refresh` requiere una sesión vigente y devuelve un token con nueva expiración; logout, bloqueo o cambio de rol invalidan los tokens por `tokenVersion`.
 - `POST /api/professional/onboarding` crea un perfil profesional con servicios, zonas y disponibilidad, y devuelve un token renovado.
 - `GET /api/professional/profile` y `PUT /api/professional/availability` son exclusivos del perfil profesional vinculado.
 - `GET|POST /api/verifications` opera solicitudes propias; `GET|PATCH /api/admin/verifications` las lista y resuelve.

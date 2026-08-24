@@ -54,3 +54,5 @@ Se retiraron los componentes de demostración inactivos de mensajes, modal y cal
 `src/components/BookingAgenda.tsx` migra a TypeScript la agenda, las transiciones de reserva, autorización/liberación demo y el formulario de reseña. Las acciones permanecen sujetas a las validaciones de estado del servidor.
 
 `server/persistence/accounts.js` habilita búsqueda paginada de cuentas por nombre, correo, rol o estado. El panel administrativo consume `/api/admin/users` con búsqueda remota y paginación, y la integración PostgreSQL cubre ese contrato.
+
+`POST /api/auth/refresh` renueva una sesión vigente sin ampliar sus permisos. La revocación mediante `tokenVersion` invalida a la vez tokens antiguos y renovados tras logout, bloqueo o cambio de rol.
