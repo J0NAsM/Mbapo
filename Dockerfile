@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY index.html vite.config.js server.js ./
+COPY server ./server
 COPY src ./src
 COPY public ./public
 COPY database ./database
@@ -18,6 +19,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server.js ./server.js
+COPY --from=build /app/server ./server
 COPY --from=build /app/database ./database
 
 USER node

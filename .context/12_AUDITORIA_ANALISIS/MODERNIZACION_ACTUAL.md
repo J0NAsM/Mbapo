@@ -58,3 +58,5 @@ Se retiraron los componentes de demostración inactivos de mensajes, modal y cal
 `POST /api/auth/refresh` renueva una sesión vigente sin ampliar sus permisos. La revocación mediante `tokenVersion` invalida a la vez tokens antiguos y renovados tras logout, bloqueo o cambio de rol.
 
 `src/lib/api.ts` renueva proactivamente el token cercano a expirar, coordina solicitudes concurrentes y actualiza la sesión de la pestaña. Una sesión expirada o revocada no se prolonga automáticamente.
+
+`Dockerfile` incluye el directorio `server/` junto a `server.js`, por lo que los módulos extraídos están disponibles en runtime. La prueba PWA verifica ese empaquetado y el service worker usa una nueva versión de caché.

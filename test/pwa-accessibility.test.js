@@ -23,6 +23,12 @@ test("el service worker no cachea solicitudes de API", async () => {
   assert.match(worker, /caches\.match/);
 });
 
+test("la imagen de despliegue incluye los módulos del servidor", async () => {
+  const dockerfile = await readFile(resolve(root, "Dockerfile"), "utf8");
+  assert.match(dockerfile, /COPY --from=build \/app\/server \.\/server/);
+  assert.match(dockerfile, /HEALTHCHECK/);
+});
+
 test("la interfaz expone navegación y avisos accesibles", async () => {
   const source = await readFile(resolve(root, "src/main.jsx"), "utf8");
   assert.match(source, /href="#main-content"/);

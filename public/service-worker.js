@@ -1,4 +1,4 @@
-const cacheName = "mbapo-shell-v2";
+const cacheName = "mbapo-shell-v3";
 const assets = ["/", "/index.html", "/manifest.webmanifest", "/icon.svg"];
 self.addEventListener("install", (event) =>
   event.waitUntil(
