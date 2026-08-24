@@ -28,3 +28,5 @@
 `server.js`, `src/main.jsx`, `src/lib/api.ts`, `database/migrations/002_account_status_notifications_idempotency.sql`, `database/migrations/003_stripe_webhook_events.sql`, `test/api.test.js`, `test/postgres.integration.test.js`.
 
 Siguiente paso: separar repositorios PostgreSQL por agregado y sumar una prueba de integraciÃ³n contra PostgreSQL real en CI. Los avisos internos ya tienen centro de lectura y eventos de reservas, pagos demo, mensajes, reseÃ±as y verificaciones.
+
+ActualizaciÃ³n de modularizaciÃ³n: `server/observability.js` concentra request IDs, logs estructurados y mÃ©tricas; `server/persistence/migrations.js` aplica migraciones en transacciÃ³n. `src/lib/datetime.ts` inicia la extracciÃ³n de utilidades de interfaz tipadas. La prueba PostgreSQL queda habilitada en CI y se omite localmente sin `MBAPO_TEST_DATABASE_URL`.

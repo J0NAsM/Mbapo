@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { apiFetch, sessionTokenKey } from "./lib/api";
+import { formatMessageTime } from "./lib/datetime";
 import "./styles.css";
 
 if ("serviceWorker" in navigator)
@@ -1292,16 +1293,6 @@ function Calendar({ bookings, role, reload, announce, setModal }) {
   );
 }
 
-function messageTime(value) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value || ""
-    : new Intl.DateTimeFormat("es-PY", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(date);
-}
-
 function Messages({ role }) {
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -1404,7 +1395,7 @@ function Messages({ role }) {
               <b>{item.partner.name}</b>
               <p>{item.lastMessage?.text || "Sin mensajes"}</p>
             </div>
-            <small>{messageTime(item.lastMessage?.createdAt)}</small>
+            <small>{formatMessageTime(item.lastMessage?.createdAt)}</small>
             {item.unreadCount > 0 && <em>{item.unreadCount}</em>}
           </button>
         ))}
@@ -1428,7 +1419,7 @@ function Messages({ role }) {
                   key={item.id}
                 >
                   {item.text}
-                  <small>{messageTime(item.createdAt)}</small>
+                  <small>{formatMessageTime(item.createdAt)}</small>
                 </div>
               ))}
             </div>
@@ -2008,7 +1999,7 @@ function NotificationCenter() {
               <li key={item.id} className={item.readAt ? "" : "unread"}>
                 <b>{item.title}</b>
                 <p>{item.body}</p>
-                <small>{messageTime(item.createdAt)}</small>
+                <small>{formatMessageTime(item.createdAt)}</small>
                 {!item.readAt && (
                   <button
                     className="link-btn"

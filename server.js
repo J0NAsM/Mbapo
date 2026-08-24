@@ -1,12 +1,5 @@
 import express from "express";
-import {
-  access,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -21,43 +14,22 @@ import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
 import Stripe from "stripe";
 import { z } from "zod";
+import { createObservability } from "./server/observability.js";
+import { applyMigrations } from "./server/persistence/migrations.js";
+import { createNotificationsRepository } from "./server/persistence/notifications.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.MBAPO_DATA_PATH || join(root, "data", "mbapo.json");
 const isProduction = process.env.NODE_ENV === "production";
-const schemaPath = join(root, "database", "schema.sql");
-const migrationsPath = join(root, "database", "migrations");
 const app = express();
 const startedAt = Date.now();
-const requestMetrics = { total: 0, byStatus: {}, byRoute: {} };
 const structuredLogs = process.env.LOG_LEVEL !== "silent";
-if (process.env.TRUST_PROXY === "true") app.set("trust proxy", 1);
-app.use((req, res, next) => {
-  const requestId = randomBytes(8).toString("hex");
-  const started = Date.now();
-  req.requestId = requestId;
-  res.setHeader("X-Request-Id", requestId);
-  res.on("finish", () => {
-    const route = req.route?.path || req.path;
-    requestMetrics.total += 1;
-    requestMetrics.byStatus[res.statusCode] =
-      (requestMetrics.byStatus[res.statusCode] || 0) + 1;
-    requestMetrics.byRoute[route] = (requestMetrics.byRoute[route] || 0) + 1;
-    if (structuredLogs)
-      console.log(
-        JSON.stringify({
-          level: "info",
-          event: "http.request",
-          requestId,
-          method: req.method,
-          path: req.path,
-          status: res.statusCode,
-          durationMs: Date.now() - started,
-        }),
-      );
-  });
-  next();
+const observability = createObservability({
+  enabled: structuredLogs,
+  createRequestId: () => randomBytes(8).toString("hex"),
 });
+if (process.env.TRUST_PROXY === "true") app.set("trust proxy", 1);
+app.use(observability.middleware);
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -169,6 +141,7 @@ const pool = process.env.DATABASE_URL
           : undefined,
     })
   : null;
+const notificationsRepository = createNotificationsRepository(pool);
 const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
@@ -651,41 +624,7 @@ async function requireAdmin(req, res, next) {
 }
 async function setupPostgres() {
   if (postgresReady) return;
-  await pool.query(
-    "CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())",
-  );
-  const migrationFiles = await readdir(migrationsPath).catch(() => []);
-  const migrations = [
-    { name: "001_initial", sql: await readFile(schemaPath, "utf8") },
-    ...(await Promise.all(
-      migrationFiles
-        .filter((file) => file.endsWith(".sql"))
-        .sort()
-        .map(async (file) => ({
-          name: file.replace(/\.sql$/, ""),
-          sql: await readFile(join(migrationsPath, file), "utf8"),
-        })),
-    )),
-  ];
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const applied = await client.query("SELECT name FROM schema_migrations");
-    const appliedNames = new Set(applied.rows.map((row) => row.name));
-    for (const migration of migrations) {
-      if (appliedNames.has(migration.name)) continue;
-      await client.query(migration.sql);
-      await client.query("INSERT INTO schema_migrations (name) VALUES ($1)", [
-        migration.name,
-      ]);
-    }
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  await applyMigrations(pool, root);
   postgresReady = true;
 }
 async function loadPostgresData() {
@@ -1576,7 +1515,7 @@ app.get("/api/admin/metrics", requireAdmin, async (_req, res) => {
 app.get("/api/metrics", requireAdmin, (_req, res) => {
   res.json({
     uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
-    requests: requestMetrics,
+    requests: observability.metrics,
     storage: pool ? "postgres" : "json",
   });
 });
@@ -1771,16 +1710,28 @@ app.get("/api/referrals", requireAuth, async (req, res) => {
 });
 app.get("/api/notifications", requireAuth, async (req, res) => {
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
-  const items = (req.db.notifications || [])
-    .filter((item) => item.accountId === req.account.id)
-    .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
-    .slice(0, limit);
+  const items = notificationsRepository
+    ? await notificationsRepository.list(req.account.id, limit)
+    : (req.db.notifications || [])
+        .filter((item) => item.accountId === req.account.id)
+        .sort(
+          (left, right) => new Date(right.createdAt) - new Date(left.createdAt),
+        )
+        .slice(0, limit);
   res.json({
     items,
     unread: items.filter((item) => !item.readAt).length,
   });
 });
 app.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
+  if (notificationsRepository) {
+    const notification = await notificationsRepository.markRead(
+      req.params.id,
+      req.account.id,
+    );
+    if (!notification) return fail(res, "NotificaciÃ³n no encontrada", 404);
+    return res.json(notification);
+  }
   const notification = (req.db.notifications || []).find(
     (item) => item.id === req.params.id && item.accountId === req.account.id,
   );

@@ -50,6 +50,12 @@ test(
       const dashboard = await fetch(`${url}/api/dashboard`, { headers });
       assert.equal(dashboard.status, 200);
       assert.ok((await dashboard.json()).bookings.length >= 1);
+
+      const notifications = await fetch(`${url}/api/notifications`, {
+        headers,
+      });
+      assert.equal(notifications.status, 200);
+      assert.ok(Array.isArray((await notifications.json()).items));
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }
