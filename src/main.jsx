@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { apiFetch, sessionTokenKey } from "./lib/api";
 import { formatMessageTime } from "./lib/datetime";
+import { NotificationCenter } from "./components/NotificationCenter";
 import "./styles.css";
 
 if ("serviceWorker" in navigator)
@@ -2175,68 +2176,6 @@ function Profile({
         </article>
       </section>
     </div>
-  );
-}
-
-function NotificationCenter() {
-  const [notifications, setNotifications] = useState([]);
-  const [error, setError] = useState("");
-  const load = useCallback(async () => {
-    try {
-      const response = await apiFetch("/api/notifications?limit=10");
-      const data = await response.json();
-      if (!response.ok) throw Error(data.error);
-      setNotifications(data.items);
-    } catch (requestError) {
-      setError(requestError.message || "No pudimos cargar los avisos.");
-    }
-  }, []);
-  useEffect(() => {
-    load();
-  }, [load]);
-  const markRead = async (id) => {
-    try {
-      const response = await apiFetch(`/api/notifications/${id}/read`, {
-        method: "PATCH",
-      });
-      const data = await response.json();
-      if (!response.ok) throw Error(data.error);
-      setNotifications((current) =>
-        current.map((item) => (item.id === id ? data : item)),
-      );
-    } catch (requestError) {
-      setError(requestError.message || "No pudimos actualizar el aviso.");
-    }
-  };
-  return (
-    <article className="notification-card">
-      <span>â™¡</span>
-      <div>
-        <h3>Avisos internos</h3>
-        {notifications.length ? (
-          <ul className="notification-list" aria-label="Avisos recientes">
-            {notifications.map((item) => (
-              <li key={item.id} className={item.readAt ? "" : "unread"}>
-                <b>{item.title}</b>
-                <p>{item.body}</p>
-                <small>{formatMessageTime(item.createdAt)}</small>
-                {!item.readAt && (
-                  <button
-                    className="link-btn"
-                    onClick={() => markRead(item.id)}
-                  >
-                    Marcar leÃ­do
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No tenÃ©s avisos nuevos.</p>
-        )}
-        {error && <p className="form-error">{error}</p>}
-      </div>
-    </article>
   );
 }
 
