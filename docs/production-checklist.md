@@ -9,6 +9,7 @@ No habilitar registros públicos, pagos ni documentos de identidad hasta complet
 3. Ejecutar migraciones en staging primero, medir duración y definir rollback.
 4. Configurar HTTPS, dominio, HSTS, logs estructurados, monitoreo, alertas y límite de peticiones en el borde.
 5. Revisar dependencias continuamente y mantener CI en verde.
+   La imagen Docker se construye en CI; antes de publicarla, ejecutar el healthcheck contra una base de staging.
 
 ## Cuentas, permisos y confianza
 

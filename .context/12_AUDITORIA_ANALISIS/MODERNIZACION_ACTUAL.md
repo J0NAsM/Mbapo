@@ -60,3 +60,5 @@ Se retiraron los componentes de demostración inactivos de mensajes, modal y cal
 `src/lib/api.ts` renueva proactivamente el token cercano a expirar, coordina solicitudes concurrentes y actualiza la sesión de la pestaña. Una sesión expirada o revocada no se prolonga automáticamente.
 
 `Dockerfile` incluye el directorio `server/` junto a `server.js`, por lo que los módulos extraídos están disponibles en runtime. La prueba PWA verifica ese empaquetado y el service worker usa una nueva versión de caché.
+
+CI ejecuta `docker build --tag mbapo:ci .` después del build frontend. Docker no está disponible en la estación local actual, por lo que la ejecución de contenedor queda delegada a CI y staging.
