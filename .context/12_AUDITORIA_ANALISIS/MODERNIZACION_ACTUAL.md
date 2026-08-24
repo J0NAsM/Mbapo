@@ -74,3 +74,5 @@ Las nuevas solicitudes de verificación usan también una transacción PostgreSQ
 La creación de reseñas en PostgreSQL valida y bloquea la reserva finalizada, evita duplicados por reserva y actualiza de forma atómica la reseña, reputación del profesional, auditoría, evento de producto y notificación. El modo JSON conserva el flujo previo compatible.
 
 `src/components/Wallet.tsx` extrae la billetera de `main.jsx` con contratos tipados para saldo, escrow y movimientos, preservando el flujo de retiro demo.
+
+`server/domain/availability.js` concentra el cálculo de franjas, disponibilidad semanal y solapamientos de reservas. Sus pruebas unitarias cubren límites de horario y días sin disponibilidad; la API conserva estas mismas reglas.
