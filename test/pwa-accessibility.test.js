@@ -41,3 +41,9 @@ test("la mensajería móvil conserva el selector de conversaciones", async () =>
   assert.doesNotMatch(styles, /\.threads\s*\{\s*display:\s*none;/);
   assert.match(styles, /\.threads\s*\{[\s\S]*?overflow-x:\s*auto;/);
 });
+
+test("la billetera comunica un estado vacío accesible", async () => {
+  const source = await readFile(resolve(root, "src/components/Wallet.tsx"), "utf8");
+  assert.match(source, /!transactions\.length/);
+  assert.match(source, /role="status"/);
+});

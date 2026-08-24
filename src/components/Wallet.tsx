@@ -51,6 +51,11 @@ export function Wallet({ setModal, user, transactions = [] }: Props) {
       </section>
       <section className="transactions">
         <h2>Movimientos recientes</h2>
+        {!transactions.length && (
+          <p className="empty" role="status">
+            Todavía no tenés movimientos. Tus pagos y cobros aparecerán aquí.
+          </p>
+        )}
         {transactions.map((item, index) => (
           <div className="transaction" key={item.id || index}>
             <span className="trans-icon">

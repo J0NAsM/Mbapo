@@ -84,3 +84,5 @@ La integración PostgreSQL repite una reserva con la misma `Idempotency-Key` y e
 `src/components/ProfessionalHome.tsx` extrae el espacio profesional de `main.jsx`, con contratos TypeScript para perfil, reservas, postulaciones y conversaciones; el componente legacy fue retirado.
 
 `src/components/VerificationRequests.tsx` migra a TypeScript el flujo de consulta y creación de solicitudes de verificación, con contratos de respuesta y errores tipados; la versión legacy fue retirada de `main.jsx`.
+
+La billetera muestra un estado vacío accesible cuando todavía no hay movimientos, evitando una sección sin explicación para cuentas nuevas.
