@@ -44,7 +44,7 @@ test(
         Authorization: `Bearer ${session.token}`,
         "Content-Type": "application/json",
       };
-      const booking = await fetch(`${url}/api/bookings`, {
+      const bookingResponse = await fetch(`${url}/api/bookings`, {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -54,7 +54,8 @@ test(
           place: "AsunciÃ³n",
         }),
       });
-      assert.equal(booking.status, 201);
+      assert.equal(bookingResponse.status, 201);
+      const booking = await bookingResponse.json();
       const replayedBooking = await fetch(`${url}/api/bookings`, {
         method: "POST",
         headers: {
@@ -164,9 +165,143 @@ test(
       assert.equal(accountSearch.status, 200);
       assert.equal((await accountSearch.json()).total, 1);
 
+      const professionalRegistration = await fetch(`${url}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Profesional PostgreSQL",
+          email: `professional-${Date.now()}@example.com`,
+          password: "password-professional-postgres-123",
+        }),
+      });
+      assert.equal(professionalRegistration.status, 201);
+      const professionalAccount = await professionalRegistration.json();
+      const roleChange = await fetch(
+        `${url}/api/admin/users/${professionalAccount.user.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${admin.token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ role: "professional" }),
+        },
+      );
+      assert.equal(roleChange.status, 200);
+      const ownerChange = await fetch(
+        `${url}/api/admin/professionals/1/owner`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${admin.token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ accountId: professionalAccount.user.id }),
+        },
+      );
+      assert.equal(ownerChange.status, 200);
+      const professionalLogin = await fetch(`${url}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: professionalAccount.user.email,
+          password: "password-professional-postgres-123",
+        }),
+      });
+      assert.equal(professionalLogin.status, 200);
+      const professionalSession = await professionalLogin.json();
+      const professionalHeaders = {
+        Authorization: `Bearer ${professionalSession.token}`,
+        "Content-Type": "application/json",
+      };
+      const confirmation = await fetch(
+        `${url}/api/professional/bookings/${booking.id}/status`,
+        {
+          method: "PATCH",
+          headers: professionalHeaders,
+          body: JSON.stringify({ status: "Profesional confirmado" }),
+        },
+      );
+      assert.equal(confirmation.status, 200);
+
+      const paymentHeaders = {
+        ...headers,
+        "Idempotency-Key": "postgres-demo-payment-idempotency-001",
+      };
+      const authorizePayment = () =>
+        fetch(`${url}/api/payments/intents`, {
+          method: "POST",
+          headers: paymentHeaders,
+          body: JSON.stringify({ bookingId: booking.id }),
+        });
+      const [authorized, authorizedReplay] = await Promise.all([
+        authorizePayment(),
+        authorizePayment(),
+      ]);
+      assert.equal(authorized.status, 201);
+      assert.equal(authorizedReplay.status, 201);
+      assert.ok(
+        [authorized, authorizedReplay].some(
+          (response) => response.headers.get("idempotency-replayed") === "true",
+        ),
+      );
+      assert.equal((await authorized.json()).paymentStatus, "demo_authorized");
+
+      const started = await fetch(
+        `${url}/api/professional/bookings/${booking.id}/status`,
+        {
+          method: "PATCH",
+          headers: professionalHeaders,
+          body: JSON.stringify({ status: "Trabajo en curso" }),
+        },
+      );
+      assert.equal(started.status, 200);
+      const awaitingConfirmation = await fetch(
+        `${url}/api/professional/bookings/${booking.id}/status`,
+        {
+          method: "PATCH",
+          headers: professionalHeaders,
+          body: JSON.stringify({ status: "Esperando tu confirmaciÃ³n" }),
+        },
+      );
+      assert.equal(awaitingConfirmation.status, 200);
+      const finished = await fetch(`${url}/api/bookings/${booking.id}/status`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ status: "Finalizado" }),
+      });
+      assert.equal(finished.status, 200);
+      const releaseHeaders = {
+        ...headers,
+        "Idempotency-Key": "postgres-demo-release-idempotency-001",
+      };
+      const released = await fetch(
+        `${url}/api/payments/${booking.id}/release`,
+        { method: "POST", headers: releaseHeaders },
+      );
+      assert.equal(released.status, 200);
+      assert.equal((await released.json()).status, "demo_paid");
+      const releasedReplay = await fetch(
+        `${url}/api/payments/${booking.id}/release`,
+        { method: "POST", headers: releaseHeaders },
+      );
+      assert.equal(releasedReplay.status, 200);
+      assert.equal(releasedReplay.headers.get("idempotency-replayed"), "true");
+
       const dashboard = await fetch(`${url}/api/dashboard`, { headers });
       assert.equal(dashboard.status, 200);
-      assert.ok((await dashboard.json()).bookings.length >= 1);
+      const dashboardData = await dashboard.json();
+      assert.ok(dashboardData.bookings.length >= 1);
+      assert.equal(
+        dashboardData.bookings.find((item) => item.id === booking.id)?.status,
+        "Completada",
+      );
+      assert.equal(
+        dashboardData.transactions.filter(
+          (item) => item.description === booking.title,
+        ).length,
+        2,
+      );
 
       const notifications = await fetch(`${url}/api/notifications`, {
         headers,

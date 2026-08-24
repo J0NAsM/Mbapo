@@ -6,6 +6,85 @@ import {
 
 export function createBookingsRepository(pool) {
   if (!pool) return null;
+  const replayIdempotency = async (client, idempotency) => {
+    if (!idempotency) return null;
+    await client.query(
+      "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
+      [
+        idempotency.accountId,
+        `${idempotency.key}:${idempotency.method}:${idempotency.path}`,
+      ],
+    );
+    const existing = await client.query(
+      "SELECT response_status, response_body FROM idempotency_keys WHERE account_id = $1 AND key = $2 AND method = $3 AND path = $4 AND created_at > now() - interval '24 hours'",
+      [
+        idempotency.accountId,
+        idempotency.key,
+        idempotency.method,
+        idempotency.path,
+      ],
+    );
+    return existing.rows[0]
+      ? {
+          replayed: true,
+          status: existing.rows[0].response_status,
+          body: existing.rows[0].response_body,
+        }
+      : null;
+  };
+  const rememberIdempotency = async (client, idempotency, status, body) => {
+    if (!idempotency) return;
+    await client.query(
+      "INSERT INTO idempotency_keys (account_id, key, method, path, response_status, response_body) VALUES ($1,$2,$3,$4,$5,$6::jsonb) ON CONFLICT (account_id, key, method, path) DO UPDATE SET response_status = EXCLUDED.response_status, response_body = EXCLUDED.response_body, created_at = now()",
+      [
+        idempotency.accountId,
+        idempotency.key,
+        idempotency.method,
+        idempotency.path,
+        status,
+        JSON.stringify(body),
+      ],
+    );
+  };
+  const nextTransactionId = async (client) => {
+    await client.query("LOCK TABLE transactions IN EXCLUSIVE MODE");
+    return Number(
+      (
+        await client.query(
+          "SELECT COALESCE(MAX(id), 0) + 1 AS id FROM transactions",
+        )
+      ).rows[0].id,
+    );
+  };
+  const appendAudit = async (client, audit) => {
+    await client.query("LOCK TABLE audit_log IN EXCLUSIVE MODE");
+    const id = Number(
+      (
+        await client.query(
+          "SELECT COALESCE(MAX(id), 0) + 1 AS id FROM audit_log",
+        )
+      ).rows[0].id,
+    );
+    await client.query(
+      "INSERT INTO audit_log (id, payload, actor_account_id) VALUES ($1,$2::jsonb,$3)",
+      [id, JSON.stringify({ ...audit, id }), audit.actorId || null],
+    );
+  };
+  const insertNotification = async (client, notification) => {
+    if (!notification?.accountId) return;
+    await client.query(
+      "INSERT INTO notifications (id, account_id, type, title, body, read_at, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+      [
+        notification.id,
+        notification.accountId,
+        notification.type,
+        notification.title,
+        notification.body,
+        notification.readAt || null,
+        notification.createdAt,
+      ],
+    );
+  };
   const list = async (column, value) => {
     const result = await pool.query(
       `SELECT payload FROM bookings WHERE ${column} = $1 ORDER BY id DESC`,
@@ -18,31 +97,10 @@ export function createBookingsRepository(pool) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        if (input.idempotency) {
-          await client.query(
-            "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
-            [
-              input.accountId,
-              `${input.idempotency.key}:${input.idempotency.method}:${input.idempotency.path}`,
-            ],
-          );
-          const replay = await client.query(
-            "SELECT response_status, response_body FROM idempotency_keys WHERE account_id = $1 AND key = $2 AND method = $3 AND path = $4 AND created_at > now() - interval '24 hours'",
-            [
-              input.accountId,
-              input.idempotency.key,
-              input.idempotency.method,
-              input.idempotency.path,
-            ],
-          );
-          if (replay.rows[0]) {
-            await client.query("COMMIT");
-            return {
-              replayed: true,
-              status: replay.rows[0].response_status,
-              body: replay.rows[0].response_body,
-            };
-          }
+        const replay = await replayIdempotency(client, input.idempotency);
+        if (replay) {
+          await client.query("COMMIT");
+          return replay;
         }
         const professionalResult = await client.query(
           "SELECT payload FROM professionals WHERE id = $1 FOR SHARE",
@@ -149,18 +207,7 @@ export function createBookingsRepository(pool) {
           "INSERT INTO growth_events (id, payload, actor_account_id, occurred_at) VALUES ($1,$2::jsonb,$3,$4)",
           [event.id, JSON.stringify(event), event.actorId, event.occurredAt],
         );
-        if (input.idempotency)
-          await client.query(
-            "INSERT INTO idempotency_keys (account_id, key, method, path, response_status, response_body) VALUES ($1,$2,$3,$4,$5,$6::jsonb)",
-            [
-              input.accountId,
-              input.idempotency.key,
-              input.idempotency.method,
-              input.idempotency.path,
-              201,
-              JSON.stringify(booking),
-            ],
-          );
+        await rememberIdempotency(client, input.idempotency, 201, booking);
         await client.query("COMMIT");
         return { booking };
       } catch (error) {
@@ -175,6 +222,260 @@ export function createBookingsRepository(pool) {
     },
     listForProfessional(professionalId) {
       return list("professional_id", professionalId);
+    },
+    async authorizeDemoPayment(input) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const replay = await replayIdempotency(client, input.idempotency);
+        if (replay) {
+          await client.query("COMMIT");
+          return replay;
+        }
+        const bookingResult = await client.query(
+          "SELECT payload FROM bookings WHERE id = $1 AND client_account_id = $2 FOR UPDATE",
+          [input.bookingId, input.accountId],
+        );
+        const booking = bookingResult.rows[0]?.payload;
+        if (!booking) {
+          await client.query("COMMIT");
+          return { error: "missing" };
+        }
+        if (booking.status !== "Profesional confirmado") {
+          await client.query("COMMIT");
+          return { error: "status" };
+        }
+        if (booking.paymentIntentId || booking.paymentStatus !== "unpaid") {
+          await client.query("COMMIT");
+          return { error: "payment" };
+        }
+        const profileResult = await client.query(
+          "SELECT payload FROM user_profiles WHERE account_id = $1 FOR UPDATE",
+          [input.accountId],
+        );
+        const profile = profileResult.rows[0]?.payload;
+        if (!profile) {
+          await client.query("COMMIT");
+          return { error: "profile" };
+        }
+        const professionalResult = await client.query(
+          "SELECT payload FROM professionals WHERE id = $1 FOR SHARE",
+          [booking.professionalId],
+        );
+        const professional = professionalResult.rows[0]?.payload;
+        const nextBooking = {
+          ...booking,
+          paymentStatus: "demo_authorized",
+          timeline: [
+            ...(booking.timeline || []),
+            { status: "Pago demo autorizado", at: input.createdAt },
+          ],
+        };
+        const nextProfile = {
+          ...profile,
+          escrow: Number(profile.escrow || 0) + Number(booking.amount || 0),
+        };
+        const transactionId = await nextTransactionId(client);
+        const transaction = {
+          id: transactionId,
+          userId: input.accountId,
+          name: "Pago protegido (demo)",
+          description: booking.title,
+          amount: -Number(booking.amount || 0),
+          status: "Autorizado",
+        };
+        await client.query(
+          "UPDATE bookings SET payload = $2::jsonb, updated_at = now() WHERE id = $1",
+          [booking.id, JSON.stringify(nextBooking)],
+        );
+        await client.query(
+          "UPDATE user_profiles SET payload = $2::jsonb, updated_at = now() WHERE account_id = $1",
+          [input.accountId, JSON.stringify(nextProfile)],
+        );
+        await client.query(
+          "INSERT INTO transactions (id, payload, account_id) VALUES ($1,$2::jsonb,$3)",
+          [transaction.id, JSON.stringify(transaction), input.accountId],
+        );
+        await insertNotification(
+          client,
+          professional?.ownerId
+            ? {
+                ...input.notification,
+                accountId: professional.ownerId,
+              }
+            : null,
+        );
+        const body = { demo: true, paymentStatus: nextBooking.paymentStatus };
+        await rememberIdempotency(client, input.idempotency, 201, body);
+        await client.query("COMMIT");
+        return { body };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+    async releaseDemoPayment(input) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const replay = await replayIdempotency(client, input.idempotency);
+        if (replay) {
+          await client.query("COMMIT");
+          return replay;
+        }
+        const bookingResult = await client.query(
+          "SELECT payload FROM bookings WHERE id = $1 AND client_account_id = $2 FOR UPDATE",
+          [input.bookingId, input.accountId],
+        );
+        const booking = bookingResult.rows[0]?.payload;
+        if (!booking) {
+          await client.query("COMMIT");
+          return { error: "missing" };
+        }
+        if (booking.status !== "Finalizado") {
+          await client.query("COMMIT");
+          return { error: "status" };
+        }
+        if (booking.paymentStatus !== "demo_authorized") {
+          await client.query("COMMIT");
+          return { error: "payment" };
+        }
+        const clientProfileResult = await client.query(
+          "SELECT payload FROM user_profiles WHERE account_id = $1 FOR UPDATE",
+          [input.accountId],
+        );
+        const clientProfile = clientProfileResult.rows[0]?.payload;
+        if (!clientProfile) {
+          await client.query("COMMIT");
+          return { error: "profile" };
+        }
+        const professionalResult = await client.query(
+          "SELECT payload FROM professionals WHERE id = $1 FOR SHARE",
+          [booking.professionalId],
+        );
+        const professional = professionalResult.rows[0]?.payload;
+        const professionalAccountId = professional?.ownerId;
+        let professionalProfile = null;
+        if (professionalAccountId) {
+          const profileResult = await client.query(
+            "SELECT payload FROM user_profiles WHERE account_id = $1 FOR UPDATE",
+            [professionalAccountId],
+          );
+          professionalProfile = profileResult.rows[0]?.payload || null;
+        }
+        const platformResult = await client.query(
+          "SELECT payload FROM platform_settings WHERE id = 1 FOR SHARE",
+        );
+        const commission = Math.round(
+          (Number(booking.amount || 0) *
+            Number(platformResult.rows[0]?.payload?.commissionRate || 0)) /
+            100,
+        );
+        const payout = Number(booking.amount || 0) - commission;
+        const nextBooking = {
+          ...booking,
+          paymentStatus: "demo_paid",
+          status: "Completada",
+          timeline: [
+            ...(booking.timeline || []),
+            {
+              status: "Pago demo liberado",
+              at: input.createdAt,
+              by: input.accountId,
+            },
+          ],
+        };
+        const nextClientProfile = {
+          ...clientProfile,
+          escrow: Math.max(
+            0,
+            Number(clientProfile.escrow || 0) - Number(booking.amount || 0),
+          ),
+        };
+        const transactionId = await nextTransactionId(client);
+        const clientTransaction = {
+          id: transactionId,
+          userId: input.accountId,
+          name: "Pago protegido liberado (demo)",
+          description: booking.title,
+          amount: 0,
+          status: "Liberado",
+        };
+        const professionalTransaction = professionalProfile
+          ? {
+              id: transactionId + 1,
+              userId: professionalAccountId,
+              name: "Cobro por servicio (demo)",
+              description: booking.title,
+              amount: payout,
+              status: "Disponible",
+            }
+          : null;
+        await client.query(
+          "UPDATE bookings SET payload = $2::jsonb, updated_at = now() WHERE id = $1",
+          [booking.id, JSON.stringify(nextBooking)],
+        );
+        await client.query(
+          "UPDATE user_profiles SET payload = $2::jsonb, updated_at = now() WHERE account_id = $1",
+          [input.accountId, JSON.stringify(nextClientProfile)],
+        );
+        if (professionalProfile)
+          await client.query(
+            "UPDATE user_profiles SET payload = $2::jsonb, updated_at = now() WHERE account_id = $1",
+            [
+              professionalAccountId,
+              JSON.stringify({
+                ...professionalProfile,
+                balance: Number(professionalProfile.balance || 0) + payout,
+              }),
+            ],
+          );
+        await client.query(
+          "INSERT INTO transactions (id, payload, account_id) VALUES ($1,$2::jsonb,$3)",
+          [
+            clientTransaction.id,
+            JSON.stringify(clientTransaction),
+            input.accountId,
+          ],
+        );
+        if (professionalTransaction)
+          await client.query(
+            "INSERT INTO transactions (id, payload, account_id) VALUES ($1,$2::jsonb,$3)",
+            [
+              professionalTransaction.id,
+              JSON.stringify(professionalTransaction),
+              professionalAccountId,
+            ],
+          );
+        await appendAudit(client, {
+          actorId: input.accountId,
+          action: "payment.demo_released",
+          entity: "booking",
+          entityId: String(booking.id),
+          metadata: {
+            amount: Number(booking.amount || 0),
+            professionalId: booking.professionalId,
+          },
+          createdAt: input.createdAt,
+        });
+        await insertNotification(
+          client,
+          professionalAccountId
+            ? { ...input.notification, accountId: professionalAccountId }
+            : null,
+        );
+        const body = { demo: true, status: nextBooking.paymentStatus };
+        await rememberIdempotency(client, input.idempotency, 200, body);
+        await client.query("COMMIT");
+        return { body };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
     },
   };
 }

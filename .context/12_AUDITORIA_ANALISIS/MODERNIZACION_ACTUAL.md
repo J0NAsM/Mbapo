@@ -18,7 +18,7 @@
 
 ## Pendiente técnico concreto
 
-- Terminar las escrituras PostgreSQL por agregado para reservas, pagos demo, retiros y moderación administrativa; mensajes, reseñas y altas de verificación ya no escriben el snapshot.
+- Terminar las escrituras PostgreSQL por agregado para transiciones/cancelaciones de reservas, retiros y moderación administrativa; la creación, el pago demo, mensajes, reseñas y altas de verificación ya no escriben el snapshot.
 - Ampliar la integración PostgreSQL para cubrir los nuevos comandos de reseña y verificación; CI ya levanta PostgreSQL 16 y localmente la prueba se omite sin `MBAPO_TEST_DATABASE_URL`.
 - Terminar la conversión de componentes React y los contratos de dominio a TypeScript.
 - Reemplazar los componentes visuales legacy que siguen en `src/main.jsx` después de validar la interfaz nueva.
@@ -74,6 +74,10 @@ Las nuevas solicitudes de verificación usan también una transacción PostgreSQ
 La creación de reseñas en PostgreSQL valida y bloquea la reserva finalizada, evita duplicados por reserva y actualiza de forma atómica la reseña, reputación del profesional, auditoría, evento de producto y notificación. El modo JSON conserva el flujo previo compatible.
 
 `src/components/Wallet.tsx` extrae la billetera de `main.jsx` con contratos tipados para saldo, escrow y movimientos, preservando el flujo de retiro demo.
+
+La autorización y liberación de pagos demo ahora se ejecutan en `server/persistence/bookings.js` como comandos PostgreSQL atómicos. Cada operación bloquea la reserva y los perfiles afectados, escribe billetera, movimientos, auditoría, aviso interno e idempotencia en una única transacción; una repetición no puede acreditar ni debitar dos veces. `test/postgres.integration.test.js` cubre autorización concurrente, liberación repetida y la reserva completada resultante.
+
+Siguiente paso: migrar las transiciones de estado y cancelación de reservas, luego los retiros demo y la moderación administrativa, que aún usan el adaptador transitorio de snapshot en el modo PostgreSQL.
 
 `server/domain/availability.js` concentra el cálculo de franjas, disponibilidad semanal y solapamientos de reservas. Sus pruebas unitarias cubren límites de horario y días sin disponibilidad; la API conserva estas mismas reglas.
 

@@ -82,7 +82,7 @@ export function createMessagesRepository(pool) {
         }
         if (idempotency)
           await client.query(
-            "INSERT INTO idempotency_keys (account_id, key, method, path, response_status, response_body) VALUES ($1,$2,$3,$4,$5,$6::jsonb)",
+            "INSERT INTO idempotency_keys (account_id, key, method, path, response_status, response_body) VALUES ($1,$2,$3,$4,$5,$6::jsonb) ON CONFLICT (account_id, key, method, path) DO UPDATE SET response_status = EXCLUDED.response_status, response_body = EXCLUDED.response_body, created_at = now()",
             [
               idempotency.accountId,
               idempotency.key,

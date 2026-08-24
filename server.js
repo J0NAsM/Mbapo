@@ -2219,8 +2219,45 @@ app.patch("/api/bookings/:bookingId/status", requireAuth, async (req, res) => {
   res.json(booking);
 });
 app.post("/api/payments/intents", requireAuth, async (req, res) => {
-  if (replayIdempotentRequest(req, res)) return;
+  const idempotency = bookingsRepository
+    ? persistedIdempotency(req, res)
+    : null;
+  if (bookingsRepository && idempotency === false) return;
+  if (!bookingsRepository && replayIdempotentRequest(req, res)) return;
   const bookingId = Number(req.body.bookingId);
+  if (bookingsRepository && demoPayments) {
+    const result = await bookingsRepository.authorizeDemoPayment({
+      bookingId,
+      accountId: req.account.id,
+      createdAt: new Date().toISOString(),
+      idempotency,
+      notification: {
+        id: `ntf-${randomBytes(10).toString("hex")}`,
+        type: "payment.authorized",
+        title: "Pago protegido autorizado",
+        body: "El pago demo de tu reserva fue autorizado.",
+        readAt: null,
+        createdAt: new Date().toISOString(),
+      },
+    });
+    if (result.replayed) {
+      res.setHeader("Idempotency-Replayed", "true");
+      return res.status(result.status).json(result.body);
+    }
+    if (result.error === "missing")
+      return fail(res, "Reserva no encontrada", 404);
+    if (result.error === "status")
+      return fail(
+        res,
+        "La reserva debe ser confirmada por el profesional antes de pagar",
+        409,
+      );
+    if (result.error === "payment")
+      return fail(res, "Esta reserva ya tiene un pago iniciado", 409);
+    if (result.error === "profile")
+      return fail(res, "No se pudo cargar tu billetera", 409);
+    return res.status(201).json(result.body);
+  }
   const db = req.db;
   const booking = db.bookings.find(
     (item) => item.id === bookingId && item.clientId === req.account.id,
@@ -2283,7 +2320,44 @@ app.post("/api/payments/intents", requireAuth, async (req, res) => {
   res.status(201).json(result);
 });
 app.post("/api/payments/:bookingId/release", requireAuth, async (req, res) => {
-  if (replayIdempotentRequest(req, res)) return;
+  const idempotency = bookingsRepository
+    ? persistedIdempotency(req, res)
+    : null;
+  if (bookingsRepository && idempotency === false) return;
+  if (!bookingsRepository && replayIdempotentRequest(req, res)) return;
+  if (bookingsRepository && demoPayments) {
+    const result = await bookingsRepository.releaseDemoPayment({
+      bookingId: Number(req.params.bookingId),
+      accountId: req.account.id,
+      createdAt: new Date().toISOString(),
+      idempotency,
+      notification: {
+        id: `ntf-${randomBytes(10).toString("hex")}`,
+        type: "payment.released",
+        title: "Cobro disponible",
+        body: "El cobro demo de tu reserva ya está disponible en tu billetera.",
+        readAt: null,
+        createdAt: new Date().toISOString(),
+      },
+    });
+    if (result.replayed) {
+      res.setHeader("Idempotency-Replayed", "true");
+      return res.status(result.status).json(result.body);
+    }
+    if (result.error === "missing")
+      return fail(res, "No hay un pago autorizado para esta reserva", 404);
+    if (result.error === "status")
+      return fail(
+        res,
+        "La reserva debe estar finalizada para liberar el pago",
+        409,
+      );
+    if (result.error === "payment")
+      return fail(res, "No hay un pago autorizado para liberar", 409);
+    if (result.error === "profile")
+      return fail(res, "No se pudo cargar tu billetera", 409);
+    return res.json(result.body);
+  }
   const db = req.db;
   const booking = db.bookings.find(
     (item) =>
