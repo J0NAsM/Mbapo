@@ -1,0 +1,105 @@
+Resumen Ejecutivo de tu App
+Nombre tentativo: Mbapo
+Problema: Encontrar especialistas de confianza (mecánicos, electricistas, albañiles…) es una odisea: llamadas, grupos de WhatsApp, sin garantía de calidad.
+Solución: Un marketplace global que centraliza profesionales con reputación verificable, comparación de precios, contratación inmediata y gestión de horarios.
+Público: Cualquier persona que quiera contratar o trabajar, sin límite de edad ni profesión.
+Diferenciador: No es un nicho (como Uber para conductores), es horizontal. El profesional se convierte en un “producto” con historial, reseñas y precios claros. La confianza se construye con verificación rigurosa y un sistema de pagos/comisiones integrado.
+
+🧩 Funcionalidades Esenciales (según lo que has descrito)
+Funcionalidad	Detalle
+Registro verificado	Evitar bots y perfiles falsos (selfie + documento, validación manual/IA).
+Doble rol	Mismo usuario puede ser contratista y contratado. Múltiples perfiles de habilidad (ej. electricista + soldador).
+Publicación de servicios/trabajos	Contratista crea una oferta; profesional publica su perfil y tarifas. Ambos pueden buscar y postularse.
+Chat interno	Negociación, envío de ubicación, fotos.
+Pagos integrados	Múltiples pasarelas (tarjeta, transferencia, billeteras digitales). El pago se retiene y libera al finalizar. Comisión automática para la plataforma (descontada al profesional).
+Reputación e historial	Reseñas, estrellas, trabajos completados, verificación de identidad.
+Geolocalización	Búsqueda por cercanía, seguimiento en tiempo real (opcional).
+Offline-first	El usuario puede navegar, escribir mensajes y crear publicaciones sin conexión; se sincroniza al volver.
+Gestión de horarios	El profesional puede marcar disponibilidad y coordinar citas desde la app.
+Notificaciones	Push y email para nuevos mensajes, postulaciones, recordatorios de cita.
+Plataformas: Web + iOS + Android (misma experiencia).
+Monetización: Sin anuncios ni suscripción. Comisión por transacción (ej. 10% sobre el pago al profesional).
+Seguridad: Datos sensibles (ubicación de la casa, identidad). Cifrado extremo a extremo y verificación obligatoria.
+Métrica principal de éxito: Volumen de contrataciones e ingresos por comisiones.
+
+🚀 Propuesta de MVP (3 meses con IA)
+Un MVP no necesita todas las funciones, solo las imprescindibles para validar que la gente paga. Con herramientas de IA puedes acelerar muchísimo.
+
+🎯 MVP imprescindible (versión 1.0)
+Registro simple (email/Google + teléfono). La verificación fuerte puede venir después.
+
+Perfil único (nombre, foto, habilidad principal, tarifa por hora).
+
+Publicar “busco” o “ofrezco” (título, descripción, categoría, precio).
+
+Chat básico (texto, imágenes).
+
+Pagos con Stripe/Escrow (flujo de retención de fondos y comisión automática).
+
+Sistema de reseñas (1-5 estrellas, comentario).
+
+Geolocalización (solo para mostrar distancia, sin tracking en tiempo real).
+
+Qué dejar para después: múltiples perfiles, gestión de horarios avanzada, offline completo, pasarelas de pago locales complejas.
+
+🛠️ Stack Tecnológico Recomendado (rápido y asistido por IA)
+Frontend: Flutter (un solo código para iOS, Android y web). Con FlutterFlow (low-code) puedes generar el 70% visualmente y luego ajustar con código ayudado por Copilot.
+
+Backend: Firebase (Auth, Firestore, Storage, Functions) o Supabase (Open Source, escala mejor). La IA te puede generar las funciones en segundos.
+
+Pagos: Stripe Connect (maneja comisiones, escrow, múltiples monedas).
+
+Chat: Stream Chat API (tiene capa gratuita generosa) o Firebase Realtime Database.
+
+Asistentes IA: Cursor o GitHub Copilot para código, ChatGPT para arquitectura, v0 para prototipado web.
+
+Consejo IA: Pide a ChatGPT que te genere el esquema completo de base de datos, las reglas de seguridad y las plantillas de funciones. En 3 meses es factible si te dedicas a tiempo completo.
+
+📣 Promoción gratuita o muy barata (desde cero)
+No necesitas presupuesto millonario. Aquí un plan orgánico paso a paso:
+
+1. Página de aterrizaje tipo “waitlist”
+Crea una landing simple (Carrd, Notion + Super, o con FlutterFlow mismo).
+
+Explica en 30 segundos qué hace la app. Botón “Únete a la beta” (captura emails).
+
+Difunde en redes con un video corto mostrando el problema y la solución (grabado con tu móvil, edición básica en CapCut).
+
+2. Redes sociales de nicho local
+Ve a grupos de Facebook de tu ciudad: “Electricistas de confianza en [ciudad]”, “Albañiles y reformas”, etc.
+
+No hagas spam. Publica un mensaje genuino: “Estoy creando una herramienta gratuita para que profesionales como vosotros consigáis clientes sin pagar comisiones abusivas. ¿Qué funcionalidad os vendría mejor?” Esto genera conversación y primeros usuarios reales.
+
+3. Comunidades de profesionales
+Entra en Reddit, foros de oficios (Fontanería, Electricidad, etc.) y pregunta sobre sus dolores. Deja que ellos validen la idea.
+
+Ofrece acceso anticipado gratuito a cambio de feedback y reseñas. Así construyes tu catálogo inicial.
+
+4. SEO de contenidos (blog)
+Escribe artículos tipo “¿Cómo encontrar un electricista de confianza en [ciudad]?” o “Precios medios de fontanería 2025”. Usa herramientas IA para redactar (Jasper, ChatGPT). Esto atrae tráfico a largo plazo sin costo.
+
+5. Programa de referidos incorporado desde el día 1
+Implementa un sistema sencillo: “Trae a un amigo profesional y ambos ganáis una comisión reducida en vuestras primeras 3 transacciones”.
+
+6. Colaboraciones con escuelas de oficios
+Contacta centros de FP para que sus alumnos creen perfiles al graduarse. Es una base de profesionales jóvenes que necesitan reputación.
+
+Presupuesto total inicial: 0€-50€/mes (dominio + hosting landing, herramientas IA freemium). Cuando generes primeras comisiones, reinvierte en anuncios segmentados.
+
+🔍 Análisis de Competidores y tu Espacio
+Has identificado bien el panorama. Efectivamente, no existe un “Uber de todos los oficios” global y confiable. Los que mencionas atacan nichos o son directorios de leads. Tu ventaja: centralización absoluta, pagos integrados, reputación verificable y bidireccionalidad (contratista también puede publicar oferta y elegir candidatos).
+
+El mayor reto será la verificación de identidad y la seguridad. Te sugiero empezar con verificación manual (foto con código escrito a mano) apoyada por IA (detección de manipulación de imágenes) e ir escalando a verificación documental oficial.
+
+✅ Siguientes Pasos Inmediatos (esta semana)
+Boceto en papel o Figma de las pantallas principales (feed de búsqueda, perfil, chat, pago). Usa plantillas gratuitas.
+
+Elegir stack y crear repositorio (recomiendo Flutter + Firebase + Stripe).
+
+Definir esquema de datos con ChatGPT: pídele el JSON de usuarios, trabajos, reseñas, transacciones.
+
+Graba un vídeo de 1 minuto explicando el problema y mostrando el diseño. Compártelo en tus redes para conseguir los primeros 100 inscritos a la beta.
+
+Busca 5 profesionales reales dispuestos a probarlo y a dejar que les grabes para un caso de estudio inicial.
+
+Tienes una idea sólida, un mercado inmenso y la motivación necesaria. Con IA y un MVP bien enfocado puedes validarla sin arruinarte. ¿Quieres que te ayude con el esquema de base de datos o con el guion de la landing? Solo dime y lo creamos paso a paso.

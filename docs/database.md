@@ -1,0 +1,34 @@
+# Base de datos PostgreSQL
+
+Mbapo usa PostgreSQL 16 como fuente de verdad cuando `DATABASE_URL` está configurada. El esquema está en [`database/schema.sql`](../database/schema.sql) y se aplica de dos maneras:
+
+- Al crear un volumen nuevo con `docker compose up -d postgres`, PostgreSQL lo ejecuta automáticamente.
+- Al iniciar la API con `DATABASE_URL`, `server.js` comprueba y aplica el esquema para que el despliegue no dependa de un paso manual.
+
+## Inicio local
+
+```bash
+cp .env.example .env
+# Reemplazá POSTGRES_PASSWORD y MBAPO_AUTH_SECRET por valores propios.
+docker compose up -d postgres
+npm run api
+```
+
+La primera ejecución crea datos de demostración solo fuera de producción. En una base anterior que usaba `mbapo_state`, la API importa ese estado una vez a las tablas nuevas.
+
+## Modelo
+
+Las entidades tienen tablas propias con claves foráneas e índices: `accounts`, `user_profiles`, `professionals`, `jobs`, `bookings`, `messages`, `transactions`, `reviews`, `verifications`, `audit_log` y `growth_events`.
+
+Durante la transición, cada agregado conserva parte de sus atributos en la columna `payload` JSONB. Esto mantiene el contrato de la API mientras se normalizan atributos de búsqueda y reportes de forma incremental. Las claves, relaciones, versiones de estado y campos de seguridad ya son relacionales.
+
+Las escrituras usan una versión optimista de estado: si otra operación guardó primero, la API responde `409` para que el cliente recargue, en vez de sobrescribir datos silenciosamente.
+
+`growth_events` solo conserva eventos mínimos de producto —por ejemplo, registro, búsqueda, reserva y referido— para medir embudos. No se deben registrar direcciones exactas, texto de conversaciones, documentos, contraseñas ni identificadores publicitarios.
+
+## Producción
+
+- Usar una instancia administrada, cifrada y privada de PostgreSQL; no exponer el puerto 5432 públicamente.
+- Configurar `DATABASE_SSL=true`. Solo en una red de desarrollo controlada puede usarse `DATABASE_SSL_REJECT_UNAUTHORIZED=false`.
+- Habilitar copias de seguridad verificadas, recuperación ante desastres, monitoreo de conexiones y rotación de credenciales.
+- No editar tablas ni JSON directamente: crear una migración versionada, probarla en una copia y documentar el rollback.

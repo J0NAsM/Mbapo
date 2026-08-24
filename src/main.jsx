@@ -1,0 +1,2421 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createRoot } from "react-dom/client";
+import "./styles.css";
+
+if ("serviceWorker" in navigator)
+  window.addEventListener("load", () =>
+    navigator.serviceWorker.register("/service-worker.js").catch(() => {}),
+  );
+
+const offlineQueueKey = "mbapo-offline-outbox";
+function apiFetch(url, options = {}) {
+  const token = sessionStorage.getItem("mbapo-session-token");
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+}
+function trackProductEvent(name, metadata = {}) {
+  if (!sessionStorage.getItem("mbapo-session-token")) return;
+  apiFetch("/api/events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, ...metadata }),
+  }).catch(() => {});
+}
+function queuedRequests() {
+  try {
+    return JSON.parse(localStorage.getItem(offlineQueueKey) || "[]");
+  } catch {
+    return [];
+  }
+}
+function enqueueRequest(url, method, body) {
+  const next = [
+    ...queuedRequests(),
+    { url, method, body, queuedAt: Date.now() },
+  ];
+  localStorage.setItem(offlineQueueKey, JSON.stringify(next));
+}
+async function flushOfflineQueue() {
+  const waiting = queuedRequests();
+  if (!waiting.length) return 0;
+  const pending = [];
+  let delivered = 0;
+  for (const request of waiting) {
+    try {
+      const response = await apiFetch(request.url, {
+        method: request.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request.body),
+      });
+      if (!response.ok) pending.push(request);
+      else delivered += 1;
+    } catch {
+      pending.push(request);
+      break;
+    }
+  }
+  localStorage.setItem(offlineQueueKey, JSON.stringify(pending));
+  return delivered;
+}
+
+const professionals = [
+  {
+    id: 1,
+    name: "Rocío Benítez",
+    initials: "RB",
+    color: "#f3b63f",
+    role: "Electricista certificada",
+    rating: 4.9,
+    jobs: 126,
+    price: 95000,
+    distance: "1.2 km",
+    verified: true,
+    available: true,
+    tags: ["Instalaciones", "Emergencias"],
+    text: "Instalaciones seguras, reparaciones y tableros eléctricos.",
+  },
+  {
+    id: 2,
+    name: "Mateo Duarte",
+    initials: "MD",
+    color: "#5d87d7",
+    role: "Plomero · Reparaciones",
+    rating: 4.8,
+    jobs: 89,
+    price: 80000,
+    distance: "2.8 km",
+    verified: true,
+    available: true,
+    tags: ["Pérdidas", "Baños"],
+    text: "Resuelvo filtraciones, griferías y problemas de presión.",
+  },
+  {
+    id: 3,
+    name: "Sofía Rojas",
+    initials: "SR",
+    color: "#db8066",
+    role: "Pintora y decoradora",
+    rating: 5.0,
+    jobs: 64,
+    price: 70000,
+    distance: "3.1 km",
+    verified: true,
+    available: false,
+    tags: ["Interiores", "Color"],
+    text: "Terminaciones cuidadas para renovar tus espacios.",
+  },
+  {
+    id: 4,
+    name: "Juan Pablo Acosta",
+    initials: "JA",
+    color: "#62a783",
+    role: "Técnico de aire acondicionado",
+    rating: 4.7,
+    jobs: 103,
+    price: 110000,
+    distance: "4.5 km",
+    verified: true,
+    available: true,
+    tags: ["Mantenimiento", "Split"],
+    text: "Instalación, limpieza y reparación de climatización.",
+  },
+];
+
+const jobs = [
+  {
+    id: 1,
+    title: "Instalar 3 ventiladores de techo",
+    category: "Electricidad",
+    place: "Villa Morra",
+    budget: "Gs. 450.000 – 650.000",
+    date: "Para esta semana",
+    owner: "Camila R.",
+    applicants: 6,
+    urgent: false,
+  },
+  {
+    id: 2,
+    title: "Reparar pérdida debajo de la pileta",
+    category: "Plomería",
+    place: "Recoleta",
+    budget: "Gs. 180.000 – 250.000",
+    date: "Hoy · Flexible",
+    owner: "Diego M.",
+    applicants: 4,
+    urgent: true,
+  },
+  {
+    id: 3,
+    title: "Pintar living y pasillo",
+    category: "Pintura",
+    place: "Barrio Jara",
+    budget: "Gs. 1.200.000 – 1.700.000",
+    date: "Desde el 24 de agosto",
+    owner: "Laura F.",
+    applicants: 9,
+    urgent: false,
+  },
+];
+
+const clientNav = [
+  ["calendar", "#", "Reservas"],
+  ["discover", "⌂", "Inicio"],
+  ["search", "⌕", "Buscar"],
+  ["jobs", "▣", "Trabajos"],
+  ["messages", "◌", "Mensajes"],
+  ["profile", "◉", "Perfil"],
+];
+const professionalNav = [
+  ["discover", "⌂", "Inicio"],
+  ["jobs", "▣", "Solicitudes"],
+  ["calendar", "◫", "Agenda"],
+  ["messages", "◌", "Mensajes"],
+  ["profile", "◉", "Perfil"],
+];
+
+function Avatar({ person, size = "" }) {
+  return (
+    <span className={`avatar ${size}`} style={{ background: person.color }}>
+      {person.initials}
+    </span>
+  );
+}
+function Stars({ value }) {
+  return (
+    <span className="stars">
+      ★ <b>{value}</b>
+    </span>
+  );
+}
+
+function App() {
+  const [view, setView] = useState("discover");
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("Todos");
+  const [dashboard, setDashboard] = useState({
+    professionals,
+    jobs,
+    user: { favorites: [], balance: 1485000, escrow: 520000 },
+    transactions: [],
+    messages: [],
+  });
+  const [professionalWorkspace, setProfessionalWorkspace] = useState(null);
+  const [selectedProfessional, setSelectedProfessional] = useState(
+    professionals[0],
+  );
+  const [saved, setSaved] = useState([]);
+  const [notice, setNotice] = useState("");
+  const [modal, setModal] = useState(null);
+  const [conversation, setConversation] = useState([
+    {
+      text: "Hola, Rocío. ¿Tenés disponibilidad este jueves?",
+      author: "client",
+      createdAt: "10:40",
+    },
+    {
+      text: "¡Hola! Sí, puedo pasar a partir de las 14:00.",
+      author: "professional",
+      createdAt: "10:42",
+    },
+  ]);
+  const [message, setMessage] = useState("");
+  const [location, setLocation] = useState(() =>
+    localStorage.getItem("mbapo-location-consent")
+      ? "Ubicación aproximada activada"
+      : "Asunción, Paraguay",
+  );
+  const [adminSession, setAdminSession] = useState(() => {
+    try {
+      return JSON.parse(
+        sessionStorage.getItem("mbapo-admin-session") || "null",
+      );
+    } catch {
+      return null;
+    }
+  });
+  const [session, setSession] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem("mbapo-session") || "null");
+    } catch {
+      return null;
+    }
+  });
+  const role =
+    session?.user?.role === "professional" ? "professional" : "client";
+  const [filters, setFilters] = useState({
+    available: false,
+    verified: false,
+    minRating: 0,
+    maxPrice: 0,
+  });
+
+  const loadDashboard = useCallback(async () => {
+    try {
+      const response = await apiFetch("/api/dashboard");
+      if (!response.ok) return;
+      const data = await response.json();
+      setDashboard(data);
+      setSaved(data.user?.favorites || []);
+      setConversation(
+        data.messages?.filter((item) => item.professionalId === 1) || [],
+      );
+      if (session?.user?.role === "professional") {
+        const professionalResponse = await apiFetch(
+          "/api/professional/dashboard",
+        );
+        if (professionalResponse.ok)
+          setProfessionalWorkspace(await professionalResponse.json());
+      } else setProfessionalWorkspace(null);
+    } catch {
+      /* The visual demo remains usable if the API is offline. */
+    }
+  }, [session?.user?.role]);
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
+  useEffect(() => {
+    const sync = async () => {
+      const delivered = await flushOfflineQueue();
+      if (delivered) {
+        await loadDashboard();
+        announce(
+          `${delivered} acción${delivered > 1 ? "es" : ""} sin conexión sincronizada${delivered > 1 ? "s" : ""}.`,
+        );
+      }
+    };
+    window.addEventListener("online", sync);
+    if (navigator.onLine) sync();
+    return () => window.removeEventListener("online", sync);
+  }, [loadDashboard]);
+  const filtered = useMemo(
+    () =>
+      (dashboard.professionals || professionals).filter((p) => {
+        const haystack =
+          `${p.name} ${p.role} ${p.tags.join(" ")}`.toLowerCase();
+        const requested = query
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "");
+        const aliases =
+          requested.includes("heladera") || requested.includes("aire")
+            ? "refrigeracion"
+            : requested.includes("auto") || requested.includes("mecan")
+              ? "mecanica"
+              : requested.includes("perdida") || requested.includes("canilla")
+                ? "plomeria"
+                : requested.includes("luz") || requested.includes("enchufe")
+                  ? "electricista"
+                  : requested;
+        const categoryWords = {
+          Electricidad: "electric",
+          Plomería: "plomer",
+          Mecánica: "mecanic",
+          Refrigeración: "refriger",
+          Construcción: "constru",
+          Limpieza: "limp",
+          Educación: "profesor",
+        };
+        return (
+          haystack
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .includes(aliases) &&
+          (category === "Todos" ||
+            haystack
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .includes(categoryWords[category] || category.toLowerCase())) &&
+          (!filters.available || p.available) &&
+          (!filters.verified || p.verified) &&
+          p.rating >= filters.minRating &&
+          (!filters.maxPrice || p.price <= filters.maxPrice)
+        );
+      }),
+    [dashboard.professionals, query, category, filters],
+  );
+
+  const announce = (text) => {
+    setNotice(text);
+    setTimeout(() => setNotice(""), 2800);
+  };
+  const currentUser = dashboard.user?.id ? dashboard.user : session.user;
+  const initials = (currentUser?.name || "MB")
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+  const shareReferral = async () => {
+    const code = currentUser?.referralCode;
+    if (!code)
+      return announce("Tu código de referido estará disponible pronto.");
+    const text = `Usá mi código ${code} al crear tu cuenta en Mbapo.`;
+    try {
+      if (navigator.share) await navigator.share({ title: "Mbapo", text });
+      else await navigator.clipboard.writeText(text);
+      trackProductEvent("referral.shared");
+      announce("Código de referido listo para compartir.");
+    } catch {
+      announce("No pudimos compartir el código. Podés copiarlo manualmente.");
+    }
+  };
+  const toggleSave = async (id) => {
+    const before = saved;
+    setSaved((v) => (v.includes(id) ? v.filter((x) => x !== id) : [...v, id]));
+    try {
+      const response = await apiFetch(`/api/favorites/${id}`, {
+        method: "POST",
+      });
+      if (!response.ok) throw Error();
+      const data = await response.json();
+      setSaved(data.favorites);
+    } catch {
+      setSaved(before);
+      announce("No pudimos guardar el favorito. Iniciá sesión nuevamente.");
+    }
+  };
+  const saveSearch = async () => {
+    if (!query.trim() && category === "Todos")
+      return announce("Elegí una búsqueda o categoría antes de guardar.");
+    try {
+      const response = await apiFetch("/api/saved-searches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, category, filters }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      announce(
+        "Búsqueda guardada. Te mostraremos novedades cuando actives alertas.",
+      );
+    } catch (error) {
+      announce(error.message || "No pudimos guardar la búsqueda.");
+    }
+  };
+  const send = async () => {
+    if (!message.trim()) return;
+    const pending = {
+      id: Date.now(),
+      text: message.trim(),
+      author: "client",
+      createdAt: "Ahora",
+    };
+    const payload = { professionalId: 1, text: pending.text };
+    setConversation((v) => [...v, pending]);
+    setMessage("");
+    try {
+      const response = await apiFetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw Error();
+      const sent = await response.json();
+      setConversation((v) =>
+        v.map((item) => (item.id === pending.id ? sent : item)),
+      );
+      announce("Mensaje enviado a Rocío.");
+    } catch {
+      enqueueRequest("/api/messages", "POST", payload);
+      announce("Mensaje guardado y se enviará al recuperar conexión.");
+    }
+  };
+  const requestLocation = () => {
+    if (!navigator.geolocation)
+      return announce("Tu navegador no permite ubicación.");
+    navigator.geolocation.getCurrentPosition(
+      () => {
+        localStorage.setItem("mbapo-location-consent", "approximate");
+        setLocation("Ubicación aproximada activada");
+        announce("Usaremos tu zona aproximada para ordenar resultados.");
+      },
+      () => announce("No compartiremos ubicación sin tu permiso."),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 3600000 },
+    );
+  };
+
+  if (!session)
+    return (
+      <UserAccess
+        onLogin={(data) => {
+          sessionStorage.setItem("mbapo-session", JSON.stringify(data));
+          sessionStorage.setItem("mbapo-session-token", data.token);
+          setSession(data);
+        }}
+      />
+    );
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark">m</span>
+          <span>mbapo</span>
+        </div>
+        <div className="switcher">
+          <span className="mini-avatar">{initials}</span>
+          <span>
+            <small>Estás usando Mbapo como</small>
+            <b>{role === "client" ? "Cliente" : "Profesional"}</b>
+          </span>
+          <button
+            aria-label="Ver tipo de cuenta"
+            onClick={() => setView("profile")}
+          >
+            ⌄
+          </button>
+        </div>
+        <nav>
+          {[
+            ...(role === "client" ? clientNav : professionalNav),
+            ...(adminSession ? [["admin", "⚙", "Administrar"]] : []),
+          ].map(([id, icon, label]) => (
+            <button
+              key={id}
+              className={view === id ? "active" : ""}
+              onClick={() => setView(id)}
+            >
+              <i>{icon}</i>
+              {label}
+              {id === "messages" && <em>2</em>}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <button onClick={() => announce("Centro de ayuda abierto.")}>
+            ? Centro de ayuda
+          </button>
+          <button onClick={() => setModal("profile")}>⚙ Ajustes</button>
+          <div className="user-card">
+            <span className="mini-avatar ocean">{initials}</span>
+            <span>
+              <b>{currentUser?.name || "Tu cuenta"}</b>
+              <small>{currentUser?.email || ""}</small>
+            </span>
+            <button>⋮</button>
+          </div>
+        </div>
+      </aside>
+      <main>
+        {notice && <div className="toast">✓ {notice}</div>}
+        {view === "discover" && (
+          <Discover
+            filtered={filtered}
+            query={query}
+            setQuery={setQuery}
+            category={category}
+            setCategory={setCategory}
+            saved={saved}
+            toggleSave={toggleSave}
+            setModal={setModal}
+            announce={announce}
+            location={location}
+            requestLocation={requestLocation}
+            platform={dashboard.platform}
+            filters={filters}
+            setFilters={setFilters}
+            trackEvent={trackProductEvent}
+            saveSearch={saveSearch}
+            onBook={(professional) => {
+              setSelectedProfessional(professional);
+              setModal("book");
+            }}
+          />
+        )}
+        {view === "search" && (
+          <Discover
+            filtered={filtered}
+            query={query}
+            setQuery={setQuery}
+            category={category}
+            setCategory={setCategory}
+            saved={saved}
+            toggleSave={toggleSave}
+            setModal={setModal}
+            announce={announce}
+            location={location}
+            requestLocation={requestLocation}
+            platform={dashboard.platform}
+            filters={filters}
+            setFilters={setFilters}
+            trackEvent={trackProductEvent}
+            saveSearch={saveSearch}
+            onBook={(professional) => {
+              setSelectedProfessional(professional);
+              setModal("book");
+            }}
+          />
+        )}
+        {view === "jobs" && (
+          <Jobs
+            setModal={setModal}
+            announce={announce}
+            jobs={dashboard.jobs || jobs}
+          />
+        )}
+        {view === "calendar" && (
+          <Calendar
+            bookings={
+              role === "professional"
+                ? professionalWorkspace?.bookings || []
+                : dashboard.bookings || []
+            }
+            role={role}
+            reload={loadDashboard}
+            announce={announce}
+          />
+        )}
+        {view === "messages" && (
+          <Messages
+            conversation={conversation}
+            message={message}
+            setMessage={setMessage}
+            send={send}
+          />
+        )}
+        {view === "wallet" && (
+          <Wallet
+            setModal={setModal}
+            user={dashboard.user}
+            transactions={dashboard.transactions}
+          />
+        )}
+        {view === "profile" && (
+          <Profile
+            role={role}
+            user={currentUser}
+            onReferralShare={shareReferral}
+            onWallet={() => setView("wallet")}
+            onAdmin={() => setView("admin")}
+          />
+        )}
+        {view === "admin" &&
+          (adminSession ? (
+            <AdminPanel
+              session={adminSession}
+              onLogout={() => {
+                sessionStorage.removeItem("mbapo-admin-session");
+                setAdminSession(null);
+                setView("discover");
+              }}
+              announce={announce}
+            />
+          ) : (
+            <AdminAccess
+              onLogin={(session) => {
+                sessionStorage.setItem(
+                  "mbapo-admin-session",
+                  JSON.stringify(session),
+                );
+                setAdminSession(session);
+              }}
+            />
+          ))}
+      </main>
+      <button className="mobile-new" onClick={() => setModal("publish")}>
+        ＋
+      </button>
+      {modal &&
+        (modal === "book" ? (
+          <BookingFlow
+            close={() => setModal(null)}
+            announce={announce}
+            reload={loadDashboard}
+            professional={selectedProfessional}
+          />
+        ) : (
+          <ModalNew
+            kind={modal}
+            close={() => setModal(null)}
+            announce={announce}
+            reload={loadDashboard}
+          />
+        ))}
+    </div>
+  );
+}
+
+function Discover({
+  filtered,
+  query,
+  setQuery,
+  category,
+  setCategory,
+  saved,
+  toggleSave,
+  setModal,
+  announce,
+  location,
+  requestLocation,
+  platform,
+  filters,
+  setFilters,
+  trackEvent,
+  saveSearch,
+  onBook,
+}) {
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const categories = [
+    { name: "Todos", icon: "✣" },
+    { name: "Electricidad", icon: "⚡" },
+    { name: "Plomería", icon: "🔧" },
+    { name: "Mecánica", icon: "🚗" },
+    { name: "Refrigeración", icon: "❄" },
+    { name: "Construcción", icon: "🧱" },
+    { name: "Limpieza", icon: "✦" },
+    { name: "Educación", icon: "▣" },
+  ];
+  return (
+    <>
+      <header className="topbar">
+        <button
+          className="location"
+          onClick={requestLocation}
+          title="Usar ubicación aproximada"
+        >
+          <span>⌖</span>
+          <div>
+            <small>Tu ubicación</small>
+            <b>{location}⌄</b>
+          </div>
+        </button>
+        <div className="header-actions">
+          <button className="help">?</button>
+          <button className="bell">
+            ♧<em></em>
+          </button>
+          <button className="publish" onClick={() => setModal("publish")}>
+            ＋ Publicar necesidad
+          </button>
+        </div>
+      </header>
+      <section className="intent-hero">
+        <p className="eyebrow">
+          {platform?.content?.heroEyebrow || "SERVICIOS QUE DAN TRANQUILIDAD"}
+        </p>
+        <h1>{platform?.content?.heroTitle || "¿Qué necesitás hoy?"}</h1>
+        <p>
+          {platform?.content?.heroDescription ||
+            "Contanos con tus palabras y encontrá a la persona indicada."}
+        </p>
+        <div className="intent-search">
+          <span>⌕</span>
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Ej. mi heladera no enfría"
+          />
+          <button
+            onClick={() => {
+              if (query.trim())
+                trackEvent("catalog.searched", { category: query.trim() });
+              announce(
+                query
+                  ? `Buscando “${query}” cerca tuyo.`
+                  : "Escribí una necesidad para comenzar.",
+              );
+            }}
+          >
+            Buscar
+          </button>
+        </div>
+        <small>Probá: electricista · mecánico · profesor · diseñadora</small>
+      </section>
+      <section className="search-row">
+        <div className="search">
+          <span>⌕</span>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar servicio, profesional o problema"
+          />
+          <kbd>⌘ K</kbd>
+        </div>
+        <button
+          className="filter"
+          onClick={() => setFiltersOpen((value) => !value)}
+        >
+          ☷ Filtros
+        </button>
+        <button className="filter" onClick={saveSearch}>
+          Guardar búsqueda
+        </button>
+      </section>
+      {filtersOpen && (
+        <section className="filter-panel">
+          <label>
+            <input
+              type="checkbox"
+              checked={filters.available}
+              onChange={(event) =>
+                setFilters({ ...filters, available: event.target.checked })
+              }
+            />{" "}
+            Disponible hoy
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={filters.verified}
+              onChange={(event) =>
+                setFilters({ ...filters, verified: event.target.checked })
+              }
+            />{" "}
+            Identidad verificada
+          </label>
+          <label>
+            Valoración
+            <select
+              value={filters.minRating}
+              onChange={(event) =>
+                setFilters({
+                  ...filters,
+                  minRating: Number(event.target.value),
+                })
+              }
+            >
+              <option value="0">Cualquiera</option>
+              <option value="4.5">4.5 o más</option>
+              <option value="4.8">4.8 o más</option>
+            </select>
+          </label>
+          <label>
+            Hasta Gs.
+            <input
+              type="number"
+              value={filters.maxPrice || ""}
+              onChange={(event) =>
+                setFilters({
+                  ...filters,
+                  maxPrice: Number(event.target.value) || 0,
+                })
+              }
+              placeholder="Sin límite"
+            />
+          </label>
+          <button
+            onClick={() =>
+              setFilters({
+                available: false,
+                verified: false,
+                minRating: 0,
+                maxPrice: 0,
+              })
+            }
+          >
+            Limpiar
+          </button>
+        </section>
+      )}
+      <div className="category-row">
+        {categories.map((c) => (
+          <button
+            key={c.name}
+            className={category === c.name ? "selected" : ""}
+            onClick={() => setCategory(c.name)}
+          >
+            <i>{c.icon}</i>
+            {c.name}
+          </button>
+        ))}
+        <button
+          className="all-categories"
+          onClick={() =>
+            announce(
+              "El administrador puede gestionar todas las categorías desde el panel.",
+            )
+          }
+        >
+          Ver todas →
+        </button>
+      </div>
+      <section className="section-head">
+        <div>
+          <h2>Profesionales cerca de vos</h2>
+          <p>Seleccionados por su experiencia y reputación.</p>
+        </div>
+        <button className="link-btn" onClick={() => setCategory("Todos")}>
+          Ver todos <span>→</span>
+        </button>
+      </section>
+      <div className="pro-grid">
+        {filtered.map((p) => (
+          <article className="pro-card" key={p.id}>
+            <div className="card-top">
+              <Avatar person={p} />
+              <button
+                className={`save ${saved.includes(p.id) ? "saved" : ""}`}
+                aria-label="Guardar profesional"
+                onClick={() => toggleSave(p.id)}
+              >
+                {saved.includes(p.id) ? "♥" : "♡"}
+              </button>
+            </div>
+            <div className="pro-title">
+              <div>
+                <h3>
+                  {p.name} {p.verified && <span className="verified">✓</span>}
+                </h3>
+                <p>{p.role}</p>
+              </div>
+              <Stars value={p.rating} />
+            </div>
+            <div className="trust-evidence">
+              <span>
+                ★ {p.rating} · {p.jobs} trabajos
+              </span>
+              <span>
+                {p.verified
+                  ? "✓ Identidad verificada"
+                  : "◌ Verificación pendiente"}
+              </span>
+              <span className={p.available ? "available" : ""}>
+                {p.available
+                  ? "● Disponible hoy"
+                  : "○ Consultar disponibilidad"}
+              </span>
+            </div>
+            <div className="pro-info">
+              <span>⌖ A {p.distance}</span>
+              <span>Desde Gs. {p.price.toLocaleString("es-PY")}</span>
+            </div>
+            <div className="card-foot">
+              <div>
+                <b>{p.tags[0] || "Servicio profesional"}</b>
+                <small>{p.tags[1] ? ` · ${p.tags[1]}` : ""}</small>
+              </div>
+              <button
+                onClick={() => {
+                  trackEvent("professional.viewed", { category: p.role });
+                  onBook(p);
+                }}
+              >
+                {p.available ? "Contratar" : "Ver perfil"}
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+      {filtered.length === 0 && (
+        <div className="empty">
+          No encontramos profesionales con esa búsqueda. Probá otra categoría.
+        </div>
+      )}
+      <section className="trust-strip">
+        <span className="shield">✓</span>
+        <div>
+          <b>Tu tranquilidad es nuestra prioridad</b>
+          <p>
+            Perfiles verificados · Pagos protegidos · Soporte cuando lo
+            necesitás
+          </p>
+        </div>
+        <button
+          onClick={() =>
+            announce("Te contamos cómo protegemos cada contratación.")
+          }
+        >
+          Conocé más →
+        </button>
+      </section>
+    </>
+  );
+}
+
+function Jobs({ setModal, announce, jobs: jobList }) {
+  const apply = async (job) => {
+    try {
+      const response = await apiFetch(`/api/jobs/${job.id}/applications`, {
+        method: "POST",
+      });
+      if (!response.ok) throw Error();
+      announce(`Tu postulación para “${job.title}” fue enviada.`);
+    } catch {
+      announce("No pudimos enviar la postulación. Iniciá sesión nuevamente.");
+    }
+  };
+  return (
+    <div className="content-page">
+      <header className="page-title">
+        <div>
+          <p className="eyebrow">OPORTUNIDADES</p>
+          <h1>Trabajos cerca tuyo</h1>
+          <p>Publicaciones activas de personas que necesitan ayuda.</p>
+        </div>
+        <button className="publish" onClick={() => setModal("publish")}>
+          ＋ Publicar necesidad
+        </button>
+      </header>
+      <div className="job-layout">
+        <section className="job-list">
+          {jobList.map((j) => (
+            <article className="job-card" key={j.id}>
+              <div className="job-meta">
+                <span>{j.category}</span>
+                {j.urgent && <b>Urgente</b>}
+                <small>Publicado hace 2 h</small>
+              </div>
+              <h3>{j.title}</h3>
+              <p>
+                ⌖ {j.place} <i>·</i> {j.date}
+              </p>
+              <div className="job-bottom">
+                <span>
+                  <b>{j.budget}</b>
+                  <small>Presupuesto estimado</small>
+                </span>
+                <span>{j.applicants} profesionales interesados</span>
+                <button onClick={() => apply(j)}>Postularme →</button>
+              </div>
+            </article>
+          ))}
+        </section>
+        <aside className="side-tip">
+          <span>✦</span>
+          <h3>¿Sos profesional?</h3>
+          <p>
+            Completá tu perfil, verificá tu identidad y empezá a recibir
+            oportunidades.
+          </p>
+          <button onClick={() => setModal("profile")}>
+            Completar mi perfil
+          </button>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function BookingAgenda({ bookings, role, reload, announce }) {
+  const [savingId, setSavingId] = useState(null);
+  const awaitingClientConfirmation = "Esperando tu confirmaci\u00f3n";
+  const nextStatus = (booking) => {
+    if (role === "professional") {
+      const transitions = {
+        "Esperando respuesta": "Profesional confirmado",
+        "Profesional confirmado": "Trabajo en curso",
+        "Trabajo en curso": awaitingClientConfirmation,
+      };
+      return transitions[booking.status];
+    }
+    const transitions = {
+      "Esperando respuesta": "Cancelada",
+      [awaitingClientConfirmation]: "Finalizado",
+    };
+    return transitions[booking.status];
+  };
+  const labelFor = (booking) => {
+    if (booking.status === "Profesional confirmado") return "Autorizar pago";
+    if (booking.status === "Finalizado") return "Liberar pago";
+    const next = nextStatus(booking);
+    return (
+      {
+        "Profesional confirmado": "Confirmar reserva",
+        "Trabajo en curso": "Iniciar trabajo",
+        [awaitingClientConfirmation]: "Pedir confirmacion",
+        Finalizado: "Confirmar trabajo",
+        Cancelada: "Cancelar reserva",
+      }[next] || null
+    );
+  };
+  const updateBooking = async (booking) => {
+    setSavingId(booking.id);
+    try {
+      let url;
+      let method;
+      let body;
+      if (role === "client" && booking.status === "Profesional confirmado") {
+        url = "/api/payments/intents";
+        method = "POST";
+        body = { bookingId: booking.id };
+      } else if (role === "client" && booking.status === "Finalizado") {
+        url = `/api/payments/${booking.id}/release`;
+        method = "POST";
+      } else {
+        const status = nextStatus(booking);
+        if (!status) return;
+        url =
+          role === "professional"
+            ? `/api/professional/bookings/${booking.id}/status`
+            : `/api/bookings/${booking.id}/status`;
+        method = "PATCH";
+        body = { status };
+      }
+      const response = await apiFetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      await reload();
+      announce("Reserva actualizada correctamente.");
+    } catch (error) {
+      announce(error.message || "No pudimos actualizar la reserva.");
+    } finally {
+      setSavingId(null);
+    }
+  };
+  return (
+    <div className="content-page">
+      <header className="page-title">
+        <div>
+          <p className="eyebrow">ORGANIZA TU TIEMPO</p>
+          <h1>{role === "professional" ? "Tu agenda" : "Tus reservas"}</h1>
+          <p>Segui el estado de cada servicio desde un solo lugar.</p>
+        </div>
+      </header>
+      <section className="calendar">
+        {bookings.length === 0 && (
+          <div className="empty">Todavia no tenes reservas activas.</div>
+        )}
+        {bookings.map((booking) => (
+          <div className="appointment" key={booking.id}>
+            <time>
+              {booking.date}
+              <br />
+              <small>{booking.time}</small>
+            </time>
+            <div>
+              <span className="tag green">{booking.status}</span>
+              <h3>{booking.title}</h3>
+              <p>
+                {role === "professional" && booking.client?.name
+                  ? `Cliente: ${booking.client.name}`
+                  : "Servicio solicitado"}
+              </p>
+              <small>Pago: {booking.paymentStatus}</small>
+            </div>
+            {labelFor(booking) && (
+              <button
+                disabled={savingId === booking.id}
+                onClick={() => updateBooking(booking)}
+              >
+                {savingId === booking.id ? "Guardando..." : labelFor(booking)}
+              </button>
+            )}
+          </div>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+function Calendar({ bookings, role, reload, announce, setModal }) {
+  if (bookings)
+    return (
+      <BookingAgenda
+        bookings={bookings}
+        role={role}
+        reload={reload}
+        announce={announce}
+      />
+    );
+  const days = ["Lun 18", "Mar 19", "Mié 20", "Jue 21", "Vie 22"];
+  return (
+    <div className="content-page">
+      <header className="page-title">
+        <div>
+          <p className="eyebrow">ORGANIZÁ TU TIEMPO</p>
+          <h1>Tu agenda</h1>
+          <p>Las reservas y recordatorios de esta semana.</p>
+        </div>
+        <button className="publish" onClick={() => setModal("book")}>
+          ＋ Agendar servicio
+        </button>
+      </header>
+      <section className="calendar">
+        <div className="calendar-days">
+          {days.map((d, i) => (
+            <div className={i === 3 ? "today" : ""} key={d}>
+              <b>{d}</b>
+              <span>{i === 3 ? "HOY" : ""}</span>
+            </div>
+          ))}
+        </div>
+        <div className="appointment">
+          <time>
+            14:00
+            <br />
+            <small>— 16:00</small>
+          </time>
+          <div>
+            <span className="tag green">Confirmada</span>
+            <h3>Instalación de ventiladores</h3>
+            <p>con Rocío Benítez · Villa Morra</p>
+          </div>
+          <button onClick={() => setModal("book")}>Ver detalle →</button>
+        </div>
+        <div className="appointment faint">
+          <time>
+            10:30
+            <br />
+            <small>— 11:30</small>
+          </time>
+          <div>
+            <span className="tag amber">Pendiente</span>
+            <h3>Visita técnica de plomería</h3>
+            <p>con Mateo Duarte · Recoleta</p>
+          </div>
+          <button onClick={() => setModal("book")}>Confirmar →</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function Messages({ conversation, message, setMessage, send }) {
+  return (
+    <div className="messages-page">
+      <aside className="threads">
+        <div className="thread-head">
+          <h2>Mensajes</h2>
+          <button>✎</button>
+        </div>
+        <div className="thread active">
+          <Avatar person={professionals[0]} size="small" />
+          <div>
+            <b>Rocío Benítez</b>
+            <p>¡Hola! Sí, puedo pasar…</p>
+          </div>
+          <small>10:42</small>
+        </div>
+        <div className="thread">
+          <Avatar person={professionals[1]} size="small" />
+          <div>
+            <b>Mateo Duarte</b>
+            <p>Te envío el presupuesto.</p>
+          </div>
+          <small>Ayer</small>
+        </div>
+      </aside>
+      <section className="chat">
+        <header>
+          <Avatar person={professionals[0]} size="small" />
+          <div>
+            <b>
+              Rocío Benítez <span className="verified">✓</span>
+            </b>
+            <p>
+              <i></i> Disponible ahora
+            </p>
+          </div>
+          <button>⋮</button>
+        </header>
+        <div className="chat-body">
+          <p className="chat-date">HOY</p>
+          {conversation.map((m, i) => (
+            <div
+              className={`bubble ${m.author === "professional" ? "them" : "me"}`}
+              key={m.id || i}
+            >
+              {m.text}
+              <small>{m.createdAt}</small>
+            </div>
+          ))}
+          <div className="job-preview">
+            <span className="tag">Electricidad</span>
+            <h4>Instalar 3 ventiladores de techo</h4>
+            <p>Jueves, 21 de agosto · Villa Morra</p>
+            <button>Ver solicitud</button>
+          </div>
+        </div>
+        <form
+          className="message-box"
+          onSubmit={(e) => {
+            e.preventDefault();
+            send();
+          }}
+        >
+          <button type="button">＋</button>
+          <input
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Escribí un mensaje…"
+          />
+          <button className="send" aria-label="Enviar">
+            ↑
+          </button>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function Wallet({ setModal, user, transactions = [] }) {
+  const guaranies = (value) =>
+    `Gs. ${Number(value || 0).toLocaleString("es-PY")}`;
+  return (
+    <div className="content-page">
+      <header className="page-title">
+        <div>
+          <p className="eyebrow">PAGOS SEGUROS</p>
+          <h1>Tu billetera</h1>
+          <p>Administrá pagos y cobros de manera transparente.</p>
+        </div>
+        <button className="publish" onClick={() => setModal("withdraw")}>
+          Retirar fondos
+        </button>
+      </header>
+      <section className="wallet-cards">
+        <div className="balance">
+          <span>Saldo disponible</span>
+          <h2>{guaranies(user?.balance)}</h2>
+          <p>Actualizado ahora</p>
+          <button onClick={() => setModal("withdraw")}>Retirar dinero →</button>
+        </div>
+        <div className="escrow">
+          <span>◈</span>
+          <div>
+            <small>EN PAGO PROTEGIDO</small>
+            <h3>{guaranies(user?.escrow)}</h3>
+            <p>Se libera al confirmar el trabajo.</p>
+          </div>
+        </div>
+      </section>
+      <section className="transactions">
+        <h2>Movimientos recientes</h2>
+        {transactions.map((item, i) => (
+          <div className="transaction" key={item.id || i}>
+            <span className="trans-icon">
+              {i === 0 ? "◈" : i === 1 ? "↓" : "%"}
+            </span>
+            <div>
+              <b>{item.name}</b>
+              <p>{item.description}</p>
+            </div>
+            <span className={item.amount > 0 ? "income" : ""}>
+              <b>
+                {item.amount > 0 ? "+" : "-"} {guaranies(Math.abs(item.amount))}
+              </b>
+              <small>{item.status}</small>
+            </span>
+          </div>
+        ))}
+      </section>
+    </div>
+  );
+}
+
+function Profile({ role, setRole, user, onWallet, onAdmin, onReferralShare }) {
+  const initials = (user?.name || "MB")
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+  return (
+    <div className="content-page">
+      <header className="page-title">
+        <div>
+          <p className="eyebrow">TU CUENTA</p>
+          <h1>Perfil y preferencias</h1>
+          <p>Una misma cuenta para contratar y ofrecer servicios.</p>
+        </div>
+      </header>
+      <section className="profile-card">
+        <span className="profile-avatar">{initials}</span>
+        <div>
+          <h2>
+            {user?.name || "Tu cuenta"}{" "}
+            {user?.verified && <span className="verified">✓</span>}
+          </h2>
+          <p>
+            {user?.verified
+              ? "Identidad verificada"
+              : "Completá la verificación para generar confianza"}
+          </p>
+          <button className="link-btn">Editar perfil →</button>
+        </div>
+      </section>
+      <section className="profile-options">
+        <article>
+          <span>↔</span>
+          <div>
+            <h3>Tipo de cuenta</h3>
+            <p>El servidor define tus permisos y las acciones disponibles.</p>
+          </div>
+          <div className="role-toggle" hidden>
+            <button
+              className={role === "client" ? "active" : ""}
+              onClick={() => setRole("client")}
+            >
+              Cliente
+            </button>
+            <button
+              className={role === "professional" ? "active" : ""}
+              onClick={() => setRole("professional")}
+            >
+              Profesional
+            </button>
+          </div>
+        </article>
+        <article>
+          <span>◈</span>
+          <div>
+            <h3>Pagos y billetera</h3>
+            <p>Consultá tus cobros, pagos protegidos y retiros.</p>
+          </div>
+          <button className="link-btn" onClick={onWallet}>
+            Abrir →
+          </button>
+        </article>
+        <article>
+          <span>✦</span>
+          <div>
+            <h3>Invitá a alguien</h3>
+            <p>
+              Código: <b>{user?.referralCode || "Sin código"}</b>
+            </p>
+          </div>
+          <button className="link-btn" onClick={onReferralShare}>
+            Compartir →
+          </button>
+        </article>
+        <article>
+          <span>⚙</span>
+          <div>
+            <h3>Administración</h3>
+            <p>Acceso restringido para gestionar la plataforma.</p>
+          </div>
+          <button className="link-btn" onClick={onAdmin}>
+            Abrir →
+          </button>
+        </article>
+      </section>
+    </div>
+  );
+}
+
+/* eslint-disable no-unused-vars -- Legacy presentational modal; ModalNew is the active API-backed flow. */
+function Modal({ kind, close, announce }) {
+  const [step, setStep] = useState(1);
+  const submit = (e) => {
+    e.preventDefault();
+    close();
+    announce(
+      kind === "publish"
+        ? "Tu necesidad fue publicada correctamente."
+        : kind === "withdraw"
+          ? "Solicitud de retiro creada."
+          : "Solicitud enviada. Te avisaremos al confirmar.",
+    );
+  };
+  const titles = {
+    publish: "Contanos qué necesitás",
+    book: "Solicitar una reserva",
+    profile: "Completá tu perfil",
+    withdraw: "Retirar fondos",
+  };
+  return (
+    <div className="overlay" onMouseDown={close}>
+      <form
+        className="modal"
+        onMouseDown={(e) => e.stopPropagation()}
+        onSubmit={submit}
+      >
+        <button type="button" className="close" onClick={close}>
+          ×
+        </button>
+        <p className="eyebrow">
+          {kind === "book" ? "SERVICIO PROTEGIDO" : "MBAPO"}
+        </p>
+        <h2>{titles[kind]}</h2>
+        {kind === "publish" && (
+          <>
+            <label>
+              ¿Qué trabajo necesitás?
+              <input required placeholder="Ej. Reparar instalación eléctrica" />
+            </label>
+            <label>
+              Categoría
+              <select>
+                <option>Electricidad</option>
+                <option>Plomería</option>
+                <option>Pintura</option>
+                <option>Construcción</option>
+              </select>
+            </label>
+            <label>
+              Presupuesto estimado
+              <input placeholder="Gs. 0" />
+            </label>
+            <label>
+              Detalles
+              <textarea placeholder="Describí el trabajo, fecha y cualquier información útil." />
+            </label>
+          </>
+        )}
+        {kind === "book" && (
+          <>
+            <div className="booking-pro">
+              <Avatar person={professionals[0]} />
+              <span>
+                <b>Rocío Benítez</b>
+                <small>Electricista certificada · ★ 4.9</small>
+              </span>
+            </div>
+            <label>
+              Elegí una fecha
+              <input required type="date" />
+            </label>
+            <label>
+              Horario
+              <select>
+                <option>14:00 – 16:00</option>
+                <option>16:30 – 18:30</option>
+                <option>18:30 – 20:30</option>
+              </select>
+            </label>
+            <div className="payment-note">
+              ◈ El pago queda protegido y solo se libera cuando confirmes el
+              trabajo.
+            </div>
+          </>
+        )}
+        {kind === "profile" && (
+          <>
+            <label>
+              Tu habilidad principal
+              <input defaultValue="Electricista" />
+            </label>
+            <label>
+              Tarifa por hora
+              <input defaultValue="95000" />
+            </label>
+            <div className="verify-note">
+              ✓ Verificá tu identidad para acceder a más trabajos y ganar
+              confianza.
+            </div>
+          </>
+        )}
+        {kind === "withdraw" && (
+          <>
+            <label>
+              Monto a retirar
+              <input required placeholder="Gs. 0" />
+            </label>
+            <label>
+              Cuenta de destino
+              <select>
+                <option>•••• 4482 · Banco Familiar</option>
+                <option>Agregar nueva cuenta</option>
+              </select>
+            </label>
+            <p className="modal-muted">
+              Las transferencias pueden demorar hasta 24 h hábiles.
+            </p>
+          </>
+        )}
+        <button className="modal-primary" type="submit">
+          {kind === "publish"
+            ? "Publicar necesidad"
+            : kind === "withdraw"
+              ? "Solicitar retiro"
+              : kind === "profile"
+                ? "Guardar perfil"
+                : "Continuar al pago protegido →"}
+        </button>
+      </form>
+    </div>
+  );
+}
+/* eslint-enable no-unused-vars */
+
+function ModalNew({ kind, close, announce, reload }) {
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const titles = {
+    publish: "Contanos qué necesitás",
+    book: "Solicitar una reserva",
+    profile: "Completá tu perfil",
+    withdraw: "Retirar fondos",
+  };
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setSending(true);
+    const form = new FormData(event.currentTarget);
+    const [url, method, body] =
+      kind === "publish"
+        ? [
+            "/api/jobs",
+            "POST",
+            {
+              title: form.get("title"),
+              category: form.get("category"),
+              budget: form.get("budget"),
+              details: form.get("details"),
+            },
+          ]
+        : kind === "book"
+          ? [
+              "/api/bookings",
+              "POST",
+              {
+                professionalId: 1,
+                date: form.get("date"),
+                time: form.get("time"),
+              },
+            ]
+          : kind === "profile"
+            ? [
+                "/api/profile",
+                "PATCH",
+                {
+                  skill: form.get("skill"),
+                  hourlyRate: form.get("hourlyRate"),
+                },
+              ]
+            : ["/api/withdrawals", "POST", { amount: form.get("amount") }];
+    try {
+      const response = await apiFetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const result = await response.json();
+      if (!response.ok)
+        throw Error(result.error || "No se pudo completar la operación");
+      await reload();
+      close();
+      announce(
+        kind === "publish"
+          ? "Tu necesidad fue publicada correctamente."
+          : kind === "withdraw"
+            ? "Solicitud de retiro creada."
+            : kind === "profile"
+              ? "Perfil actualizado."
+              : "Reserva creada; el pago está protegido.",
+      );
+    } catch (err) {
+      if (!navigator.onLine || /fetch|network/i.test(err.message || "")) {
+        enqueueRequest(url, method, body);
+        close();
+        announce(
+          "Guardamos esta acción y se sincronizará al recuperar conexión.",
+        );
+      } else setError(err.message || "No pudimos completar la operación.");
+    } finally {
+      setSending(false);
+    }
+  };
+  return (
+    <div className="overlay" onMouseDown={close}>
+      <form
+        className="modal"
+        onMouseDown={(event) => event.stopPropagation()}
+        onSubmit={submit}
+      >
+        <button type="button" className="close" onClick={close}>
+          ×
+        </button>
+        <p className="eyebrow">
+          {kind === "book" ? "SERVICIO PROTEGIDO" : "MBAPO"}
+        </p>
+        <h2>{titles[kind]}</h2>
+        {kind === "publish" && (
+          <>
+            <label>
+              ¿Qué trabajo necesitás?
+              <input
+                name="title"
+                required
+                placeholder="Ej. Reparar instalación eléctrica"
+              />
+            </label>
+            <label>
+              Categoría
+              <select name="category">
+                <option>Electricidad</option>
+                <option>Plomería</option>
+                <option>Pintura</option>
+                <option>Construcción</option>
+              </select>
+            </label>
+            <label>
+              Presupuesto estimado
+              <input name="budget" inputMode="numeric" placeholder="Gs. 0" />
+            </label>
+            <label>
+              Detalles
+              <textarea
+                name="details"
+                placeholder="Describí el trabajo, fecha y cualquier información útil."
+              />
+            </label>
+          </>
+        )}
+        {kind === "book" && (
+          <>
+            <div className="booking-pro">
+              <Avatar person={professionals[0]} />
+              <span>
+                <b>Rocío Benítez</b>
+                <small>Electricista certificada · ★ 4.9</small>
+              </span>
+            </div>
+            <label>
+              Elegí una fecha
+              <input name="date" required type="date" />
+            </label>
+            <label>
+              Horario
+              <select name="time">
+                <option>14:00 – 16:00</option>
+                <option>16:30 – 18:30</option>
+                <option>18:30 – 20:30</option>
+              </select>
+            </label>
+            <div className="payment-note">
+              ◈ El pago queda protegido y solo se libera cuando confirmes el
+              trabajo.
+            </div>
+          </>
+        )}
+        {kind === "profile" && (
+          <>
+            <label>
+              Tu habilidad principal
+              <input name="skill" defaultValue="Electricista" />
+            </label>
+            <label>
+              Tarifa por hora
+              <input
+                name="hourlyRate"
+                inputMode="numeric"
+                defaultValue="95000"
+              />
+            </label>
+            <div className="verify-note">
+              ✓ Verificá tu identidad para acceder a más trabajos y ganar
+              confianza.
+            </div>
+          </>
+        )}
+        {kind === "withdraw" && (
+          <>
+            <label>
+              Monto a retirar
+              <input
+                name="amount"
+                required
+                inputMode="numeric"
+                placeholder="Gs. 0"
+              />
+            </label>
+            <label>
+              Cuenta de destino
+              <select>
+                <option>•••• 4482 · Banco Familiar</option>
+                <option>Agregar nueva cuenta</option>
+              </select>
+            </label>
+            <p className="modal-muted">
+              Las transferencias pueden demorar hasta 24 h hábiles.
+            </p>
+          </>
+        )}
+        {error && <p className="form-error">{error}</p>}
+        <button className="modal-primary" disabled={sending} type="submit">
+          {sending
+            ? "Guardando…"
+            : kind === "publish"
+              ? "Publicar necesidad"
+              : kind === "withdraw"
+                ? "Solicitar retiro"
+                : kind === "profile"
+                  ? "Guardar perfil"
+                  : "Continuar al pago protegido →"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function BookingFlow({
+  close,
+  announce,
+  reload,
+  professional = professionals[0],
+}) {
+  const professionalName = professional.name;
+  const [step, setStep] = useState(1);
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("14:00 – 16:00");
+  const [place, setPlace] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const next = (event) => {
+    event.preventDefault();
+    if (step === 2 && !date) return setError("Elegí una fecha para continuar.");
+    if (step === 3 && place.trim().length < 4)
+      return setError("Indicá una zona o dirección para el servicio.");
+    setError("");
+    setStep((value) => Math.min(4, value + 1));
+  };
+  const submit = async (event) => {
+    event.preventDefault();
+    setSending(true);
+    setError("");
+    try {
+      const response = await apiFetch("/api/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          professionalId: professional.id,
+          date,
+          time,
+          place,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      await reload();
+      close();
+      announce(
+        "Solicitud creada. El pago se protege al confirmar el servicio.",
+      );
+    } catch (err) {
+      setError(err.message || "No pudimos crear la solicitud.");
+    } finally {
+      setSending(false);
+    }
+  };
+  return (
+    <div className="overlay" onMouseDown={close}>
+      <form
+        className="modal booking-flow"
+        onMouseDown={(event) => event.stopPropagation()}
+        onSubmit={step === 4 ? submit : next}
+      >
+        <button type="button" className="close" onClick={close}>
+          ×
+        </button>
+        <p className="eyebrow">SOLICITAR SERVICIO · {step} DE 4</p>
+        <div className="booking-progress">
+          <i style={{ width: `${step * 25}%` }} />
+        </div>
+        {step === 1 && (
+          <>
+            <h2>¿A quién querés contratar?</h2>
+            <div className="booking-pro">
+              <Avatar person={professionals[0]} />
+              <span>
+                <b>{professionalName}</b>
+                <small>
+                  Electricista certificada · ★ 4.9 · Identidad verificada
+                </small>
+              </span>
+            </div>
+            <p className="modal-muted">
+              Podrás revisar todos los detalles antes de enviar la solicitud.
+            </p>
+          </>
+        )}
+        {step === 2 && (
+          <>
+            <h2>¿Cuándo necesitás el servicio?</h2>
+            <label>
+              Fecha
+              <input
+                value={date}
+                onChange={(event) => setDate(event.target.value)}
+                type="date"
+                required
+              />
+            </label>
+            <label>
+              Horario
+              <select
+                value={time}
+                onChange={(event) => setTime(event.target.value)}
+              >
+                <option>08:00 – 10:00</option>
+                <option>10:30 – 12:30</option>
+                <option>14:00 – 16:00</option>
+                <option>16:30 – 18:30</option>
+              </select>
+            </label>
+          </>
+        )}
+        {step === 3 && (
+          <>
+            <h2>¿Dónde será el servicio?</h2>
+            <label>
+              Zona o dirección
+              <input
+                value={place}
+                onChange={(event) => setPlace(event.target.value)}
+                placeholder="Ej. Villa Morra, Asunción"
+                required
+              />
+            </label>
+            <div className="payment-note">
+              ⌖ La ubicación exacta solo se comparte al profesional cuando
+              confirmes la reserva.
+            </div>
+          </>
+        )}
+        {step === 4 && (
+          <>
+            <h2>Revisá tu solicitud</h2>
+            <div className="booking-review">
+              <p>
+                <b>Profesional</b>
+                <span>{professionalName}</span>
+              </p>
+              <p>
+                <b>Cuándo</b>
+                <span>
+                  {date} · {time}
+                </span>
+              </p>
+              <p>
+                <b>Dónde</b>
+                <span>{place}</span>
+              </p>
+              <p>
+                <b>Estimado</b>
+                <span>Desde Gs. 190.000</span>
+              </p>
+            </div>
+            <div className="payment-note">
+              ◈ El pago solo se procesa con un proveedor configurado y se libera
+              al finalizar el trabajo.
+            </div>
+          </>
+        )}
+        {error && <p className="form-error">{error}</p>}
+        <div className="flow-actions">
+          {step > 1 && (
+            <button
+              type="button"
+              className="filter"
+              onClick={() => setStep((value) => value - 1)}
+            >
+              Atrás
+            </button>
+          )}
+          <button className="modal-primary" disabled={sending}>
+            {sending
+              ? "Enviando…"
+              : step === 4
+                ? "Solicitar servicio"
+                : "Continuar →"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function UserAccess({ onLogin }) {
+  const [mode, setMode] = useState("login");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setLoading(true);
+    const form = new FormData(event.currentTarget);
+    const body =
+      mode === "login"
+        ? { email: form.get("email"), password: form.get("password") }
+        : {
+            name: form.get("name"),
+            email: form.get("email"),
+            password: form.get("password"),
+            referralCode: form.get("referralCode"),
+          };
+    try {
+      const response = await fetch(
+        `/api/auth/${mode === "login" ? "login" : "register"}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      onLogin(data);
+    } catch (err) {
+      setError(err.message || "No pudimos continuar.");
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <section className="auth-access">
+      <form className="modal" onSubmit={submit}>
+        <div className="brand auth-brand">
+          <span className="brand-mark">m</span>
+          <span>mbapo</span>
+        </div>
+        <p className="eyebrow">SERVICIOS DE CONFIANZA</p>
+        <h2>{mode === "login" ? "Bienvenida de nuevo" : "Creá tu cuenta"}</h2>
+        <p className="modal-muted">
+          {mode === "login"
+            ? "Ingresá para contratar o ofrecer servicios."
+            : "Una sola cuenta para contratar y trabajar."}
+        </p>
+        {mode === "register" && (
+          <>
+            <label>
+              Nombre
+              <input name="name" required autoComplete="name" />
+            </label>
+            <label>
+              Código de referido <small>(opcional)</small>
+              <input name="referralCode" autoComplete="off" maxLength="20" />
+            </label>
+          </>
+        )}
+        <label>
+          Correo
+          <input
+            name="email"
+            type="email"
+            required
+            autoComplete="email"
+            defaultValue={mode === "login" ? "andrea@mbapo.app" : ""}
+          />
+        </label>
+        <label>
+          Contraseña
+          <input
+            name="password"
+            type="password"
+            required
+            minLength="10"
+            autoComplete={
+              mode === "login" ? "current-password" : "new-password"
+            }
+          />
+        </label>
+        {error && <p className="form-error">{error}</p>}
+        <button className="modal-primary" disabled={loading}>
+          {loading
+            ? "Un momento…"
+            : mode === "login"
+              ? "Iniciar sesión"
+              : "Crear cuenta"}
+        </button>
+        <button
+          type="button"
+          className="auth-link"
+          onClick={() => {
+            setMode((value) => (value === "login" ? "register" : "login"));
+            setError("");
+          }}
+        >
+          {mode === "login"
+            ? "¿Todavía no tenés cuenta? Registrate"
+            : "¿Ya tenés una cuenta? Iniciá sesión"}
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function AdminAccess({ onLogin }) {
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const login = async (event) => {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    const form = new FormData(event.currentTarget);
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.get("email"),
+          password: form.get("password"),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      if (data.user.role !== "admin")
+        throw Error("Esta cuenta no tiene permisos de administración.");
+      onLogin(data);
+    } catch (err) {
+      setError(err.message || "No pudimos iniciar sesión.");
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <section className="admin-access">
+      <form className="modal" onSubmit={login}>
+        <p className="eyebrow">ACCESO RESTRINGIDO</p>
+        <h2>Administración de Mbapo</h2>
+        <p className="modal-muted">
+          Solo las cuentas administradoras pueden modificar datos y
+          configuración.
+        </p>
+        <label>
+          Correo
+          <input
+            name="email"
+            type="email"
+            required
+            placeholder="admin@mbapo.local"
+          />
+        </label>
+        <label>
+          Contraseña
+          <input name="password" type="password" required />
+        </label>
+        {error && <p className="form-error">{error}</p>}
+        <button className="modal-primary" disabled={loading}>
+          {loading ? "Ingresando…" : "Ingresar al panel"}
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function AdminPanel({ session, onLogout, announce }) {
+  const [state, setState] = useState(null);
+  const [platformDraft, setPlatformDraft] = useState("");
+  const [error, setError] = useState("");
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${session.token}`,
+  };
+  const load = async () => {
+    try {
+      const [response, metricsResponse] = await Promise.all([
+        fetch("/api/admin/state", { headers }),
+        fetch("/api/admin/metrics", { headers }),
+      ]);
+      const [data, growthMetrics] = await Promise.all([
+        response.json(),
+        metricsResponse.json(),
+      ]);
+      if (!response.ok) throw Error(data.error);
+      if (!metricsResponse.ok) throw Error(growthMetrics.error);
+      setState({ ...data, growthMetrics });
+      setPlatformDraft(JSON.stringify(data.platform, null, 2));
+    } catch (err) {
+      setError(err.message || "No pudimos cargar la administración.");
+    }
+  };
+  // load is intentionally invoked on mount; mutations call it again after completion.
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const request = async (url, method, body) => {
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await response.json();
+    if (!response.ok) throw Error(data.error);
+    await load();
+    return data;
+  };
+  const savePlatform = async () => {
+    try {
+      await request("/api/admin/platform", "PUT", JSON.parse(platformDraft));
+      announce("Configuración guardada.");
+    } catch (err) {
+      setError(err.message || "Configuración inválida.");
+    }
+  };
+  const saveProfessional = async (pro) => {
+    try {
+      await request(`/api/admin/professionals/${pro.id}`, "PUT", {
+        name: pro.name,
+        role: pro.role,
+        price: pro.price,
+        distance: pro.distance,
+        available: pro.available,
+        tags: pro.tags,
+        text: pro.text,
+      });
+      announce("Profesional actualizado.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  const assignProfessionalOwner = async (professionalId, accountId) => {
+    try {
+      await request(
+        `/api/admin/professionals/${professionalId}/owner`,
+        "PATCH",
+        {
+          accountId: accountId || null,
+        },
+      );
+      announce("Cuenta profesional vinculada.");
+    } catch (err) {
+      setError(err.message || "No pudimos vincular la cuenta.");
+    }
+  };
+  const updatePro = (id, field, value) =>
+    setState((current) => ({
+      ...current,
+      professionals: current.professionals.map((item) =>
+        item.id === id ? { ...item, [field]: value } : item,
+      ),
+    }));
+  const updateJob = (id, field, value) =>
+    setState((current) => ({
+      ...current,
+      jobs: current.jobs.map((item) =>
+        item.id === id ? { ...item, [field]: value } : item,
+      ),
+    }));
+  const saveJob = async (job) => {
+    try {
+      await request(`/api/admin/jobs/${job.id}`, "PUT", {
+        title: job.title,
+        category: job.category,
+        budget: job.budget,
+        place: job.place,
+        date: job.date,
+        urgent: job.urgent,
+      });
+      announce("Trabajo actualizado.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+  if (!state)
+    return (
+      <section className="admin-page">
+        <p>{error || "Cargando panel de administración…"}</p>
+      </section>
+    );
+  return (
+    <section className="admin-page">
+      <header className="page-title">
+        <div>
+          <p className="eyebrow">PANEL RESTRINGIDO</p>
+          <h1>Administrar Mbapo</h1>
+          <p>Los cambios se aplican al sistema de forma inmediata.</p>
+        </div>
+        <button className="filter" onClick={onLogout}>
+          Cerrar sesión
+        </button>
+      </header>
+      {error && <p className="form-error">{error}</p>}
+      <div className="admin-summary">
+        <span>
+          <b>{state.professionals.length}</b> profesionales
+        </span>
+        <span>
+          <b>{state.jobs.length}</b> trabajos
+        </span>
+        <span>
+          <b>{state.users.length}</b> cuentas
+        </span>
+        <span>
+          <b>{state.bookings.length}</b> reservas
+        </span>
+      </div>
+      <section className="admin-section">
+        <div>
+          <h2>Embudo de crecimiento · últimos 30 días</h2>
+          <p>
+            Medí liquidez antes de invertir en adquisición o expandir zonas.
+          </p>
+        </div>
+        <div className="admin-summary">
+          <span>
+            <b>{state.growthMetrics.funnel.registrations}</b> registros
+          </span>
+          <span>
+            <b>{state.growthMetrics.funnel.catalogSearches}</b> búsquedas
+          </span>
+          <span>
+            <b>{state.growthMetrics.funnel.jobsCreated}</b> solicitudes
+          </span>
+          <span>
+            <b>{state.growthMetrics.funnel.bookingsCreated}</b> reservas
+          </span>
+          <span>
+            <b>{state.growthMetrics.funnel.bookingsCompleted}</b> completadas
+          </span>
+          <span>
+            <b>{state.growthMetrics.operations.activeSupply}</b> oferta activa
+          </span>
+        </div>
+        {state.growthMetrics.operations.demandByCategoryZone.length > 0 && (
+          <div className="admin-hotspots">
+            <b>Demanda a revisar:</b>
+            {state.growthMetrics.operations.demandByCategoryZone.map((item) => (
+              <span key={`${item.category}-${item.zone}`}>
+                {item.category} · {item.zone}: {item.requests} solicitudes
+              </span>
+            ))}
+          </div>
+        )}
+      </section>
+      <section className="admin-section">
+        <div>
+          <h2>Configuración de la plataforma</h2>
+          <p>Comisión, categorías y contenido de portada.</p>
+        </div>
+        <textarea
+          className="admin-json"
+          value={platformDraft}
+          onChange={(event) => setPlatformDraft(event.target.value)}
+        />
+        <button className="publish" onClick={savePlatform}>
+          Guardar configuración
+        </button>
+      </section>
+      <section className="admin-section">
+        <div>
+          <h2>Profesionales</h2>
+          <p>Editá valores o eliminá perfiles con control administrativo.</p>
+        </div>
+        {state.professionals.map((pro) => (
+          <div className="admin-row" key={pro.id}>
+            <input
+              value={pro.name}
+              onChange={(event) =>
+                updatePro(pro.id, "name", event.target.value)
+              }
+            />
+            <input
+              value={pro.role}
+              onChange={(event) =>
+                updatePro(pro.id, "role", event.target.value)
+              }
+            />
+            <input
+              type="number"
+              value={pro.price}
+              onChange={(event) =>
+                updatePro(pro.id, "price", Number(event.target.value))
+              }
+            />
+            <select
+              value={pro.ownerId || ""}
+              aria-label={`Cuenta vinculada a ${pro.name}`}
+              onChange={(event) =>
+                assignProfessionalOwner(pro.id, event.target.value)
+              }
+            >
+              <option value="">Sin cuenta vinculada</option>
+              {state.users
+                .filter((user) => user.role === "professional")
+                .map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name}
+                  </option>
+                ))}
+            </select>
+            <button className="filter" onClick={() => saveProfessional(pro)}>
+              Guardar
+            </button>
+            <button
+              className="danger"
+              onClick={() =>
+                request(`/api/admin/professionals/${pro.id}`, "DELETE")
+                  .then(() => announce("Perfil eliminado."))
+                  .catch((err) => setError(err.message))
+              }
+            >
+              Eliminar
+            </button>
+          </div>
+        ))}
+      </section>
+      <section className="admin-section">
+        <div>
+          <h2>Trabajos publicados</h2>
+          <p>Administrá la oferta publicada y moderá contenidos.</p>
+        </div>
+        {state.jobs.map((job) => (
+          <div className="admin-row jobs" key={job.id}>
+            <input
+              value={job.title}
+              onChange={(event) =>
+                updateJob(job.id, "title", event.target.value)
+              }
+            />
+            <input
+              value={job.category}
+              onChange={(event) =>
+                updateJob(job.id, "category", event.target.value)
+              }
+            />
+            <input
+              value={job.budget}
+              onChange={(event) =>
+                updateJob(job.id, "budget", event.target.value)
+              }
+            />
+            <button className="filter" onClick={() => saveJob(job)}>
+              Guardar
+            </button>
+            <button
+              className="danger"
+              onClick={() =>
+                request(`/api/admin/jobs/${job.id}`, "DELETE")
+                  .then(() => announce("Trabajo eliminado."))
+                  .catch((err) => setError(err.message))
+              }
+            >
+              Eliminar
+            </button>
+          </div>
+        ))}
+      </section>
+      <section className="admin-section">
+        <div>
+          <h2>Cuentas</h2>
+          <p>Verificación y rol de acceso.</p>
+        </div>
+        {state.users.map((user) => (
+          <div className="admin-row users" key={user.id}>
+            <span>
+              <b>{user.name}</b>
+              <small>{user.email}</small>
+            </span>
+            <select
+              value={user.role}
+              onChange={(event) =>
+                request(`/api/admin/users/${user.id}`, "PATCH", {
+                  role: event.target.value,
+                }).catch((err) => setError(err.message))
+              }
+            >
+              <option value="client">Cliente</option>
+              <option value="professional">Profesional</option>
+              <option value="admin">Administrador</option>
+            </select>
+            <label>
+              <input
+                type="checkbox"
+                checked={user.verified}
+                onChange={(event) =>
+                  request(`/api/admin/users/${user.id}`, "PATCH", {
+                    verified: event.target.checked,
+                  }).catch((err) => setError(err.message))
+                }
+              />{" "}
+              Verificada
+            </label>
+          </div>
+        ))}
+      </section>
+    </section>
+  );
+}
+
+createRoot(document.getElementById("root")).render(<App />);
