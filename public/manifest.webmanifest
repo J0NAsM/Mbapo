@@ -1,7 +1,10 @@
 {
+  "id": "/",
   "name": "Mbapo — Servicios de confianza",
   "short_name": "Mbapo",
   "description": "Encontrá y contratá profesionales de confianza.",
+  "lang": "es",
+  "scope": "/",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#fbfcfa",
