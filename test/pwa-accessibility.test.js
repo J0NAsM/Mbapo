@@ -43,7 +43,10 @@ test("la mensajería móvil conserva el selector de conversaciones", async () =>
 });
 
 test("la billetera comunica un estado vacío accesible", async () => {
-  const source = await readFile(resolve(root, "src/components/Wallet.tsx"), "utf8");
+  const source = await readFile(
+    resolve(root, "src/components/Wallet.tsx"),
+    "utf8",
+  );
   assert.match(source, /!transactions\.length/);
   assert.match(source, /role="status"/);
 });
