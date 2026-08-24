@@ -50,3 +50,5 @@ La vista de trabajos tambiÃ©n consume `GET /api/jobs` con categorÃ­a, orden 
 `src/components/Messages.tsx` migra mensajería a TypeScript con contratos de hilo, interlocutor, mensaje y lectura. `App` ya no conserva estado de conversación ni envío de demostración; la pantalla consulta directamente las conversaciones reales.
 
 Se retiraron los componentes de demostración inactivos de mensajes, modal y calendario. La navegación de agenda renderiza directamente `BookingAgenda`, que opera reservas reales y acciones de pago demo.
+
+`src/components/BookingAgenda.tsx` migra a TypeScript la agenda, las transiciones de reserva, autorización/liberación demo y el formulario de reseña. Las acciones permanecen sujetas a las validaciones de estado del servidor.
