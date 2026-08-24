@@ -64,3 +64,5 @@ Se retiraron los componentes de demostración inactivos de mensajes, modal y cal
 CI ejecuta `docker build --tag mbapo:ci .` después del build frontend. Docker no está disponible en la estación local actual, por lo que la ejecución de contenedor queda delegada a CI y staging.
 
 La mensajería conserva en móvil el selector de conversaciones como carril horizontal desplazable; ya no se oculta la lista de hilos. Una prueba estática evita que esa regresión vuelva a introducirse.
+
+`src/components/Identity.tsx` concentra Avatar y Stars con contratos TypeScript estrictos y valores seguros para identidad incompleta; `main.jsx` reutiliza este componente compartido.

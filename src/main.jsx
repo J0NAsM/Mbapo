@@ -4,6 +4,7 @@ import { apiFetch, sessionTokenKey } from "./lib/api";
 import { NotificationCenter } from "./components/NotificationCenter";
 import { Messages } from "./components/Messages";
 import { BookingAgenda } from "./components/BookingAgenda";
+import { Avatar, Stars } from "./components/Identity";
 import "./styles.css";
 
 if ("serviceWorker" in navigator)
@@ -180,21 +181,6 @@ const professionalNav = [
   ["messages", "◌", "Mensajes"],
   ["profile", "◉", "Perfil"],
 ];
-
-function Avatar({ person, size = "" }) {
-  return (
-    <span className={`avatar ${size}`} style={{ background: person.color }}>
-      {person.initials}
-    </span>
-  );
-}
-function Stars({ value }) {
-  return (
-    <span className="stars">
-      ★ <b>{value}</b>
-    </span>
-  );
-}
 
 function App() {
   const [view, setView] = useState("discover");
