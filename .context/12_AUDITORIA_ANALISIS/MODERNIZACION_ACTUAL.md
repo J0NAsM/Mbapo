@@ -78,3 +78,5 @@ La creación de reseñas en PostgreSQL valida y bloquea la reserva finalizada, e
 `server/domain/availability.js` concentra el cálculo de franjas, disponibilidad semanal y solapamientos de reservas. Sus pruebas unitarias cubren límites de horario y días sin disponibilidad; la API conserva estas mismas reglas.
 
 La creación de reservas en PostgreSQL se ejecuta ahora por transacción: verifica profesional, disponibilidad y solapamientos con bloqueo de tabla; guarda reserva, aviso, auditoría, analítica e idempotencia sin `savePostgres`.
+
+La integración PostgreSQL repite una reserva con la misma `Idempotency-Key` y exige la cabecera `Idempotency-Replayed`, para detectar duplicación accidental en este comando.

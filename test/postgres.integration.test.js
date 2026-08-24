@@ -55,6 +55,35 @@ test(
         }),
       });
       assert.equal(booking.status, 201);
+      const replayedBooking = await fetch(`${url}/api/bookings`, {
+        method: "POST",
+        headers: {
+          ...headers,
+          "Idempotency-Key": "postgres-booking-replay-001",
+        },
+        body: JSON.stringify({
+          professionalId: 2,
+          date: "2037-05-18",
+          time: "09:00 - 11:00",
+          place: "Asunción",
+        }),
+      });
+      assert.equal(replayedBooking.status, 201);
+      const replay = await fetch(`${url}/api/bookings`, {
+        method: "POST",
+        headers: {
+          ...headers,
+          "Idempotency-Key": "postgres-booking-replay-001",
+        },
+        body: JSON.stringify({
+          professionalId: 2,
+          date: "2037-05-18",
+          time: "09:00 - 11:00",
+          place: "Asunción",
+        }),
+      });
+      assert.equal(replay.status, 201);
+      assert.equal(replay.headers.get("idempotency-replayed"), "true");
 
       const messageHeaders = {
         ...headers,
