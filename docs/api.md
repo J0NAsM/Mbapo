@@ -4,35 +4,36 @@ Base local: `http://localhost:3001/api`.
 
 Las rutas protegidas requieren `Authorization: Bearer <token>`. Los errores usan `{ "error": "mensaje" }`. No asumir que los datos mostrados por el cliente sustituyen las validaciones del servidor.
 
-| Método                  | Ruta                                      | Acceso           | Acción                                                                                                  |
-| ----------------------- | ----------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------- |
-| `GET`                   | `/health`                                 | público          | Estado de la API                                                                                        |
-| `POST`                  | `/auth/register`                          | público          | Crea cuenta cliente y sesión                                                                            |
-| `POST`                  | `/auth/login`                             | público          | Inicia sesión                                                                                           |
-| `GET`                   | `/professionals`                          | público          | Catálogo, con filtros `q`, `maxPrice`, `maxDistance`, `minRating`, `verified`, `available`              |
-| `GET`                   | `/dashboard`                              | sesión           | Vista permitida de la cuenta actual; nunca incluye hashes, usuarios, auditoría ni verificaciones ajenas |
-| `PATCH`                 | `/profile`                                | sesión           | Actualiza habilidad, tarifa o nombre; no cambia permisos                                                |
-| `POST`                  | `/favorites/:professionalId`              | sesión           | Alterna favorito propio                                                                                 |
-| `POST`                  | `/jobs`                                   | sesión           | Publica un trabajo                                                                                      |
-| `POST`                  | `/jobs/:jobId/applications`               | profesional      | Postula una sola vez a un trabajo abierto y ajeno                                                       |
-| `POST`                  | `/professional/onboarding`                | cliente          | Crea el perfil profesional, zonas, servicios y disponibilidad; entrega una sesión renovada              |
-| `GET`                   | `/professional/profile`                   | profesional      | Perfil profesional vinculado a la cuenta                                                                |
-| `PUT`                   | `/professional/availability`              | profesional      | Reemplaza las franjas semanales de disponibilidad propias                                               |
-| `POST`                  | `/bookings`                               | cliente          | Solicita reserva futura en horario disponible                                                           |
-| `PATCH`                 | `/bookings/:bookingId/status`             | cliente dueño    | Cancela o confirma finalización según la transición permitida                                           |
-| `POST`                  | `/payments/intents`                       | cliente dueño    | Autoriza pago demo o crea intención de Stripe luego de confirmación profesional                         |
-| `POST`                  | `/payments/:bookingId/release`            | cliente dueño    | Libera pago demo o captura pago Stripe autorizado tras finalizar el trabajo                             |
-| `POST`                  | `/webhooks/stripe`                        | Stripe           | Webhook firmado; no llamarlo desde el cliente                                                           |
-| `GET`, `POST`           | `/messages/:professionalId` y `/messages` | sesión           | Conversación propia con un profesional                                                                  |
-| `POST`                  | `/withdrawals`                            | sesión           | Solicitud demo; en producción exige proveedor de payouts                                                |
-| `GET`, `POST`           | `/professionals/:professionalId/reviews`  | público / sesión | Lee o deja una reseña de una reserva propia finalizada                                                  |
-| `GET`, `POST`           | `/verifications`                          | sesión           | Consulta o solicita verificaciones propias                                                              |
-| `GET`                   | `/admin/state`, `/admin/audit`            | admin            | Estado administrativo y auditoría                                                                       |
-| `PUT`                   | `/admin/platform`                         | admin            | Configuración de plataforma                                                                             |
-| `POST`, `PUT`, `DELETE` | `/admin/professionals`, `/admin/jobs`     | admin            | Gestión y archivado lógico                                                                              |
-| `PATCH`                 | `/admin/users/:id`                        | admin            | Cambia rol/verificación; el cambio de rol invalida sesión                                               |
-| `PATCH`                 | `/admin/bookings/:id/status`              | admin            | Registra transiciones operativas de reserva                                                             |
-| `GET`, `PATCH`          | `/admin/verifications`                    | admin            | Lista y resuelve solicitudes de verificación                                                            |
+| Método                  | Ruta                                                          | Acceso           | Acción                                                                                                  |
+| ----------------------- | ------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------- |
+| `GET`                   | `/health`                                                     | público          | Estado de la API                                                                                        |
+| `POST`                  | `/auth/register`                                              | público          | Crea cuenta cliente y sesión                                                                            |
+| `POST`                  | `/auth/login`                                                 | público          | Inicia sesión                                                                                           |
+| `GET`                   | `/professionals`                                              | público          | Catálogo, con filtros `q`, `maxPrice`, `maxDistance`, `minRating`, `verified`, `available`              |
+| `GET`                   | `/professionals/:professionalId/availability?date=YYYY-MM-DD` | público          | Franjas de dos horas disponibles, calculadas con agenda, disponibilidad semanal y reservas activas      |
+| `GET`                   | `/dashboard`                                                  | sesión           | Vista permitida de la cuenta actual; nunca incluye hashes, usuarios, auditoría ni verificaciones ajenas |
+| `PATCH`                 | `/profile`                                                    | sesión           | Actualiza habilidad, tarifa o nombre; no cambia permisos                                                |
+| `POST`                  | `/favorites/:professionalId`                                  | sesión           | Alterna favorito propio                                                                                 |
+| `POST`                  | `/jobs`                                                       | sesión           | Publica un trabajo                                                                                      |
+| `POST`                  | `/jobs/:jobId/applications`                                   | profesional      | Postula una sola vez a un trabajo abierto y ajeno                                                       |
+| `POST`                  | `/professional/onboarding`                                    | cliente          | Crea el perfil profesional, zonas, servicios y disponibilidad; entrega una sesión renovada              |
+| `GET`                   | `/professional/profile`                                       | profesional      | Perfil profesional vinculado a la cuenta                                                                |
+| `PUT`                   | `/professional/availability`                                  | profesional      | Reemplaza las franjas semanales de disponibilidad propias                                               |
+| `POST`                  | `/bookings`                                                   | cliente          | Solicita reserva futura en horario disponible                                                           |
+| `PATCH`                 | `/bookings/:bookingId/status`                                 | cliente dueño    | Cancela o confirma finalización según la transición permitida                                           |
+| `POST`                  | `/payments/intents`                                           | cliente dueño    | Autoriza pago demo o crea intención de Stripe luego de confirmación profesional                         |
+| `POST`                  | `/payments/:bookingId/release`                                | cliente dueño    | Libera pago demo o captura pago Stripe autorizado tras finalizar el trabajo                             |
+| `POST`                  | `/webhooks/stripe`                                            | Stripe           | Webhook firmado; no llamarlo desde el cliente                                                           |
+| `GET`, `POST`           | `/messages/:professionalId` y `/messages`                     | sesión           | Conversación propia con un profesional                                                                  |
+| `POST`                  | `/withdrawals`                                                | sesión           | Solicitud demo; en producción exige proveedor de payouts                                                |
+| `GET`, `POST`           | `/professionals/:professionalId/reviews`                      | público / sesión | Lee o deja una reseña de una reserva propia finalizada                                                  |
+| `GET`, `POST`           | `/verifications`                                              | sesión           | Consulta o solicita verificaciones propias                                                              |
+| `GET`                   | `/admin/state`, `/admin/audit`                                | admin            | Estado administrativo y auditoría                                                                       |
+| `PUT`                   | `/admin/platform`                                             | admin            | Configuración de plataforma                                                                             |
+| `POST`, `PUT`, `DELETE` | `/admin/professionals`, `/admin/jobs`                         | admin            | Gestión y archivado lógico                                                                              |
+| `PATCH`                 | `/admin/users/:id`                                            | admin            | Cambia rol/verificación; el cambio de rol invalida sesión                                               |
+| `PATCH`                 | `/admin/bookings/:id/status`                                  | admin            | Registra transiciones operativas de reserva                                                             |
+| `GET`, `PATCH`          | `/admin/verifications`                                        | admin            | Lista y resuelve solicitudes de verificación                                                            |
 
 ## Analítica y referidos
 

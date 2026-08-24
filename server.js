@@ -26,6 +26,7 @@ import { createPlatformRepository } from "./server/persistence/platform.js";
 import { createCatalogRepository } from "./server/persistence/catalog.js";
 import { createAccountsRepository } from "./server/persistence/accounts.js";
 import {
+  availableBookingSlots,
   bookingOverlaps,
   bookingRange,
   isProfessionalAvailable,
@@ -2940,6 +2941,42 @@ app.post("/api/withdrawals", requireAuth, async (req, res) => {
   rememberIdempotentResponse(req, 201, result);
   await save(db);
   res.status(201).json(result);
+});
+app.get("/api/professionals/:professionalId/availability", async (req, res) => {
+  const date = z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .safeParse(req.query.date);
+  const professionalId = Number(req.params.professionalId);
+  if (!date.success || !Number.isInteger(professionalId) || professionalId < 1)
+    return fail(res, "Consulta de disponibilidad inválida");
+  if (bookingsRepository) {
+    const result = await bookingsRepository.availableSlots(
+      professionalId,
+      date.data,
+    );
+    if (result.error === "professional")
+      return fail(res, "Profesional no disponible", 404);
+    return res.json({ date: date.data, slots: result.slots });
+  }
+  const db = await database();
+  const professional = db.professionals.find(
+    (item) => item.id === professionalId,
+  );
+  if (!professional?.available)
+    return fail(res, "Profesional no disponible", 404);
+  return res.json({
+    date: date.data,
+    slots: availableBookingSlots(
+      professional,
+      date.data,
+      db.bookings.filter(
+        (booking) =>
+          booking.professionalId === professionalId &&
+          booking.date === date.data,
+      ),
+    ),
+  });
 });
 app.get("/api/professionals/:professionalId/reviews", async (req, res) => {
   const id = Number(req.params.professionalId);

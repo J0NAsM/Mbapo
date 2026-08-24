@@ -1651,19 +1651,51 @@ function BookingFlow({
   const professionalName = professional.name;
   const [step, setStep] = useState(1);
   const [date, setDate] = useState("");
-  const [time, setTime] = useState("14:00 – 16:00");
+  const [time, setTime] = useState("");
+  const [slots, setSlots] = useState([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [place, setPlace] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [idempotencyKey] = useState(() => `booking-${crypto.randomUUID()}`);
   const next = (event) => {
     event.preventDefault();
-    if (step === 2 && !date) return setError("Elegí una fecha para continuar.");
+    if (step === 2 && (!date || !time))
+      return setError("Elegí una fecha y horario disponibles para continuar.");
     if (step === 3 && place.trim().length < 4)
       return setError("Indicá una zona o dirección para el servicio.");
     setError("");
     setStep((value) => Math.min(4, value + 1));
   };
+  useEffect(() => {
+    if (!date) {
+      setSlots([]);
+      setTime("");
+      return undefined;
+    }
+    let current = true;
+    setSlotsLoading(true);
+    setTime("");
+    fetch(`/api/professionals/${professional.id}/availability?date=${date}`)
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw Error(data.error);
+        if (!current) return;
+        setSlots(data.slots || []);
+      })
+      .catch((requestError) => {
+        if (current) {
+          setSlots([]);
+          setError(requestError.message || "No pudimos consultar horarios.");
+        }
+      })
+      .finally(() => {
+        if (current) setSlotsLoading(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [date, professional.id]);
   const submit = async (event) => {
     event.preventDefault();
     setSending(true);
@@ -1713,11 +1745,14 @@ function BookingFlow({
           <>
             <h2>¿A quién querés contratar?</h2>
             <div className="booking-pro">
-              <Avatar person={professionals[0]} />
+              <Avatar person={professional} />
               <span>
                 <b>{professionalName}</b>
                 <small>
-                  Electricista certificada · ★ 4.9 · Identidad verificada
+                  {professional.role} · ★ {professional.rating || "Nuevo"} ·{" "}
+                  {professional.verified
+                    ? "Identidad verificada"
+                    : "Perfil en verificación"}
                 </small>
               </span>
             </div>
@@ -1735,6 +1770,7 @@ function BookingFlow({
                 value={date}
                 onChange={(event) => setDate(event.target.value)}
                 type="date"
+                min={new Date().toISOString().slice(0, 10)}
                 required
               />
             </label>
@@ -1743,13 +1779,30 @@ function BookingFlow({
               <select
                 value={time}
                 onChange={(event) => setTime(event.target.value)}
+                disabled={!date || slotsLoading || !slots.length}
+                required
               >
-                <option>08:00 – 10:00</option>
-                <option>10:30 – 12:30</option>
-                <option>14:00 – 16:00</option>
-                <option>16:30 – 18:30</option>
+                <option value="">
+                  {slotsLoading
+                    ? "Consultando horarios…"
+                    : date
+                      ? slots.length
+                        ? "Elegí un horario"
+                        : "No hay horarios disponibles"
+                      : "Elegí una fecha primero"}
+                </option>
+                {slots.map((slot) => (
+                  <option key={slot} value={slot}>
+                    {slot}
+                  </option>
+                ))}
               </select>
             </label>
+            {date && !slotsLoading && !slots.length && (
+              <p className="empty">
+                No quedan franjas disponibles ese día. Elegí otra fecha.
+              </p>
+            )}
           </>
         )}
         {step === 3 && (

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  availableBookingSlots,
   bookingOverlaps,
   bookingRange,
   isProfessionalAvailable,
@@ -17,6 +18,23 @@ test("valida franjas horarias y detecta solapamientos", () => {
     bookingOverlaps({ start: 540, end: 660 }, { start: 660, end: 720 }),
     false,
   );
+});
+
+test("genera franjas libres desde la agenda semanal sin solapamientos", () => {
+  const slots = availableBookingSlots(
+    {
+      availability: [{ day: 1, start: "09:00", end: "15:00" }],
+    },
+    "2031-02-03",
+    [
+      {
+        status: "Profesional confirmado",
+        time: "10:30 - 12:30",
+      },
+      { status: "Cancelada", time: "13:00 - 15:00" },
+    ],
+  );
+  assert.deepEqual(slots, ["12:30 - 14:30", "13:00 - 15:00"]);
 });
 
 test("solo acepta reservas dentro de la disponibilidad semanal", () => {

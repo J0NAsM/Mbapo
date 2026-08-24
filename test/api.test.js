@@ -122,6 +122,15 @@ test("el servidor impide postulación y cambios de reserva no autorizados", asyn
   assert.equal(bookingResponse.status, 201);
   const booking = await bookingResponse.json();
 
+  const availability = await fetch(
+    `${url}/api/professionals/1/availability?date=2030-01-15`,
+  );
+  assert.equal(availability.status, 200);
+  assert.equal(
+    (await availability.json()).slots.includes("14:00 - 16:00"),
+    false,
+  );
+
   const invalidTransition = await fetch(
     `${url}/api/bookings/${booking.id}/status`,
     {

@@ -95,6 +95,8 @@ La moderación administrativa de reservas usa el mismo agregado PostgreSQL de re
 
 `src/components/AdminPanel.tsx` extrae el panel administrativo real a TypeScript estricto, con contratos para estado, métricas, cuentas, profesionales, trabajos, verificaciones y configuración. Conserva deliberadamente el token administrativo aislado de la sesión normal, la recarga posterior a mutaciones y la búsqueda paginada con debounce.
 
+`GET /api/professionals/:professionalId/availability?date=YYYY-MM-DD` entrega franjas libres calculadas desde la disponibilidad semanal y reservas activas. El formulario de reserva consulta ese contrato al elegir fecha, evita horarios fijos y conserva la validación final de solapamientos en el servidor.
+
 La integración PostgreSQL repite una reserva con la misma `Idempotency-Key` y exige la cabecera `Idempotency-Replayed`, para detectar duplicación accidental en este comando.
 
 `src/components/ProfessionalHome.tsx` extrae el espacio profesional de `main.jsx`, con contratos TypeScript para perfil, reservas, postulaciones y conversaciones; el componente legacy fue retirado.

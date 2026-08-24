@@ -61,3 +61,10 @@ test("el panel administrativo se ejecuta desde el componente tipado", async () =
   assert.match(panel, /Authorization: `Bearer \$\{session\.token\}`/);
   assert.match(panel, /\/api\/admin\/users/);
 });
+
+test("la reserva consulta franjas reales antes de enviar la solicitud", async () => {
+  const source = await readFile(resolve(root, "src/main.jsx"), "utf8");
+  assert.match(source, /\/availability\?date=\$\{date\}/);
+  assert.match(source, /No quedan franjas disponibles ese día/);
+  assert.doesNotMatch(source, /<option>08:00 – 10:00<\/option>/);
+});

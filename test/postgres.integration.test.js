@@ -56,6 +56,14 @@ test(
       });
       assert.equal(bookingResponse.status, 201);
       const booking = await bookingResponse.json();
+      const availability = await fetch(
+        `${url}/api/professionals/1/availability?date=2037-05-18`,
+      );
+      assert.equal(availability.status, 200);
+      assert.equal(
+        (await availability.json()).slots.includes("08:00 - 10:00"),
+        false,
+      );
       const replayedBooking = await fetch(`${url}/api/bookings`, {
         method: "POST",
         headers: {

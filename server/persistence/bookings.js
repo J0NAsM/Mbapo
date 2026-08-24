@@ -1,4 +1,5 @@
 import {
+  availableBookingSlots,
   bookingOverlaps,
   bookingRange,
   isProfessionalAvailable,
@@ -222,6 +223,26 @@ export function createBookingsRepository(pool) {
     },
     listForProfessional(professionalId) {
       return list("professional_id", professionalId);
+    },
+    async availableSlots(professionalId, date) {
+      const [professional, bookings] = await Promise.all([
+        pool.query("SELECT payload FROM professionals WHERE id = $1", [
+          professionalId,
+        ]),
+        pool.query(
+          "SELECT payload FROM bookings WHERE professional_id = $1 AND payload->>'date' = $2",
+          [professionalId, date],
+        ),
+      ]);
+      const payload = professional.rows[0]?.payload;
+      if (!payload?.available) return { error: "professional" };
+      return {
+        slots: availableBookingSlots(
+          payload,
+          date,
+          bookings.rows.map((row) => row.payload),
+        ),
+      };
     },
     async authorizeDemoPayment(input) {
       const client = await pool.connect();
