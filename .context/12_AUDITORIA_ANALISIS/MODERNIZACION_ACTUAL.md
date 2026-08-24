@@ -38,3 +38,5 @@ La vista de trabajos tambiÃ©n consume `GET /api/jobs` con categorÃ­a, orden 
 `server/persistence/messages.js` mueve a PostgreSQL por entidad las lecturas de hilos, conversaciones y marcas de lectura. La prueba de integraciÃ³n PostgreSQL cubre ahora reserva, mensaje, hilo, conversación, dashboard y avisos.
 
 `server/persistence/reviews.js` pagina reseñas públicas directamente desde PostgreSQL y valida la existencia del profesional en la misma consulta por agregado.
+
+`server/persistence/verifications.js` entrega solicitudes propias y la cola administrativa paginada desde PostgreSQL; la transición de aprobación continúa protegida por las reglas actuales de cuenta y perfil profesional.

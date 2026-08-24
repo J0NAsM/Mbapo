@@ -69,6 +69,18 @@ test(
       assert.equal(reviews.status, 200);
       assert.ok(Array.isArray((await reviews.json()).items));
 
+      const verification = await fetch(`${url}/api/verifications`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ kind: "identity" }),
+      });
+      assert.equal(verification.status, 201);
+      const ownVerifications = await fetch(`${url}/api/verifications`, {
+        headers,
+      });
+      assert.equal(ownVerifications.status, 200);
+      assert.equal((await ownVerifications.json())[0].kind, "identity");
+
       const dashboard = await fetch(`${url}/api/dashboard`, { headers });
       assert.equal(dashboard.status, 200);
       assert.ok((await dashboard.json()).bookings.length >= 1);

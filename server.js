@@ -19,6 +19,7 @@ import { applyMigrations } from "./server/persistence/migrations.js";
 import { createNotificationsRepository } from "./server/persistence/notifications.js";
 import { createMessagesRepository } from "./server/persistence/messages.js";
 import { createReviewsRepository } from "./server/persistence/reviews.js";
+import { createVerificationsRepository } from "./server/persistence/verifications.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.MBAPO_DATA_PATH || join(root, "data", "mbapo.json");
@@ -146,6 +147,7 @@ const pool = process.env.DATABASE_URL
 const notificationsRepository = createNotificationsRepository(pool);
 const messagesRepository = createMessagesRepository(pool);
 const reviewsRepository = createReviewsRepository(pool);
+const verificationsRepository = createVerificationsRepository(pool);
 const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
@@ -1527,6 +1529,14 @@ app.get("/api/admin/verifications", requireAdmin, async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
   const status = String(req.query.status || "");
+  if (verificationsRepository) {
+    const result = await verificationsRepository.listForAdmin({
+      status,
+      page,
+      limit,
+    });
+    return res.json({ ...result, page, limit });
+  }
   const items = (req.db?.verifications || (await database()).verifications)
     .filter((item) => !status || item.status === status)
     .sort(
@@ -2585,6 +2595,8 @@ app.post(
   },
 );
 app.get("/api/verifications", requireAuth, async (req, res) => {
+  if (verificationsRepository)
+    return res.json(await verificationsRepository.listForUser(req.account.id));
   res.json(
     req.db.verifications
       .filter((item) => item.userId === req.account.id)
