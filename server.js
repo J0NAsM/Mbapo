@@ -1436,6 +1436,12 @@ app.put("/api/admin/platform", requireAdmin, async (req, res) => {
 app.post("/api/admin/professionals", requireAdmin, async (req, res) => {
   const result = professionalInput.safeParse(req.body);
   if (!result.success) return fail(res, "Datos del profesional inválidos");
+  if (catalogRepository) {
+    const created = await catalogRepository.createProfessional({
+      details: result.data,
+    });
+    return res.status(201).json(created.professional);
+  }
   const db = await database();
   const professional = {
     id: nextId(db.professionals),
@@ -1462,6 +1468,18 @@ app.post("/api/admin/professionals", requireAdmin, async (req, res) => {
 app.put("/api/admin/professionals/:id", requireAdmin, async (req, res) => {
   const result = professionalInput.safeParse(req.body);
   if (!result.success) return fail(res, "Datos del profesional inválidos");
+  if (catalogRepository) {
+    const professionalId = Number(req.params.id);
+    if (!Number.isSafeInteger(professionalId) || professionalId < 1)
+      return fail(res, "Profesional no encontrado", 404);
+    const updated = await catalogRepository.updateProfessional({
+      professionalId,
+      details: result.data,
+    });
+    if (updated.error === "missing")
+      return fail(res, "Profesional no encontrado", 404);
+    return res.json(updated.professional);
+  }
   const db = await database();
   const professional = db.professionals.find(
     (item) => item.id === Number(req.params.id),
@@ -1529,6 +1547,19 @@ app.patch(
   },
 );
 app.delete("/api/admin/professionals/:id", requireAdmin, async (req, res) => {
+  if (catalogRepository) {
+    const professionalId = Number(req.params.id);
+    if (!Number.isSafeInteger(professionalId) || professionalId < 1)
+      return fail(res, "Profesional no encontrado", 404);
+    const archived = await catalogRepository.archiveProfessional({
+      professionalId,
+      adminId: req.admin.id,
+      createdAt: new Date().toISOString(),
+    });
+    if (archived.error === "missing")
+      return fail(res, "Profesional no encontrado", 404);
+    return res.json({ archived: archived.archived });
+  }
   const db = await database();
   const professional = db.professionals.find(
     (item) => item.id === Number(req.params.id),
@@ -1549,6 +1580,15 @@ app.delete("/api/admin/professionals/:id", requireAdmin, async (req, res) => {
 app.post("/api/admin/jobs", requireAdmin, async (req, res) => {
   const result = jobInput.safeParse(req.body);
   if (!result.success) return fail(res, "Datos del trabajo inválidos");
+  if (catalogRepository) {
+    const created = await catalogRepository.createJob({
+      details: result.data,
+      adminId: req.admin.id,
+      adminName: req.admin.name,
+      createdAt: new Date().toISOString(),
+    });
+    return res.status(201).json(created.job);
+  }
   const db = await database();
   const job = {
     id: nextId(db.jobs),
@@ -1565,6 +1605,18 @@ app.post("/api/admin/jobs", requireAdmin, async (req, res) => {
 app.put("/api/admin/jobs/:id", requireAdmin, async (req, res) => {
   const result = jobInput.safeParse(req.body);
   if (!result.success) return fail(res, "Datos del trabajo inválidos");
+  if (catalogRepository) {
+    const jobId = Number(req.params.id);
+    if (!Number.isSafeInteger(jobId) || jobId < 1)
+      return fail(res, "Trabajo no encontrado", 404);
+    const updated = await catalogRepository.updateJob({
+      jobId,
+      details: result.data,
+    });
+    if (updated.error === "missing")
+      return fail(res, "Trabajo no encontrado", 404);
+    return res.json(updated.job);
+  }
   const db = await database();
   const job = db.jobs.find((item) => item.id === Number(req.params.id));
   if (!job) return fail(res, "Trabajo no encontrado", 404);
@@ -1573,6 +1625,19 @@ app.put("/api/admin/jobs/:id", requireAdmin, async (req, res) => {
   res.json(job);
 });
 app.delete("/api/admin/jobs/:id", requireAdmin, async (req, res) => {
+  if (catalogRepository) {
+    const jobId = Number(req.params.id);
+    if (!Number.isSafeInteger(jobId) || jobId < 1)
+      return fail(res, "Trabajo no encontrado", 404);
+    const archived = await catalogRepository.archiveJob({
+      jobId,
+      adminId: req.admin.id,
+      createdAt: new Date().toISOString(),
+    });
+    if (archived.error === "missing")
+      return fail(res, "Trabajo no encontrado", 404);
+    return res.json({ archived: archived.archived });
+  }
   const db = await database();
   const job = db.jobs.find((item) => item.id === Number(req.params.id));
   if (!job) return fail(res, "Trabajo no encontrado", 404);

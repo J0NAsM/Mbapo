@@ -168,6 +168,135 @@ test(
       });
       assert.equal(adminLogin.status, 200);
       const admin = await adminLogin.json();
+      const catalogHeaders = {
+        Authorization: `Bearer ${admin.token}`,
+        "Content-Type": "application/json",
+      };
+      const catalogSuffix = Date.now();
+      const professionalName = `Catálogo PostgreSQL ${catalogSuffix}`;
+      const professionalCreation = await fetch(
+        `${url}/api/admin/professionals`,
+        {
+          method: "POST",
+          headers: catalogHeaders,
+          body: JSON.stringify({
+            name: professionalName,
+            role: "Especialista de pruebas",
+            price: 100000,
+            distance: "3 km",
+            available: true,
+            tags: ["Pruebas"],
+            text: "Perfil creado por la integración PostgreSQL.",
+          }),
+        },
+      );
+      assert.equal(professionalCreation.status, 201);
+      const catalogProfessional = await professionalCreation.json();
+      assert.equal(catalogProfessional.name, professionalName);
+      const professionalUpdate = await fetch(
+        `${url}/api/admin/professionals/${catalogProfessional.id}`,
+        {
+          method: "PUT",
+          headers: catalogHeaders,
+          body: JSON.stringify({
+            name: professionalName,
+            role: "Especialista actualizado",
+            price: 125000,
+            distance: "4 km",
+            available: true,
+            tags: ["Pruebas", "PostgreSQL"],
+            text: "Perfil actualizado por la integración PostgreSQL.",
+          }),
+        },
+      );
+      assert.equal(professionalUpdate.status, 200);
+      assert.equal(
+        (await professionalUpdate.json()).role,
+        "Especialista actualizado",
+      );
+      const professionalArchive = await fetch(
+        `${url}/api/admin/professionals/${catalogProfessional.id}`,
+        { method: "DELETE", headers: catalogHeaders },
+      );
+      assert.equal(professionalArchive.status, 200);
+      assert.equal(
+        (await professionalArchive.json()).archived,
+        catalogProfessional.id,
+      );
+      const archivedProfessionalSearch = await fetch(
+        `${url}/api/professionals?q=${encodeURIComponent(professionalName)}`,
+      );
+      assert.equal(archivedProfessionalSearch.status, 200);
+      assert.equal(
+        (await archivedProfessionalSearch.json()).some(
+          (item) => item.id === catalogProfessional.id,
+        ),
+        false,
+      );
+
+      const jobTitle = `Trabajo PostgreSQL ${catalogSuffix}`;
+      const jobCreation = await fetch(`${url}/api/admin/jobs`, {
+        method: "POST",
+        headers: catalogHeaders,
+        body: JSON.stringify({
+          title: jobTitle,
+          category: "Pruebas",
+          budget: "Gs. 200.000",
+          place: "Asunción",
+          date: "Fecha a coordinar",
+          urgent: true,
+        }),
+      });
+      assert.equal(jobCreation.status, 201);
+      const catalogJob = await jobCreation.json();
+      assert.equal(catalogJob.owner, "Administrador Mbapo");
+      const jobUpdate = await fetch(`${url}/api/admin/jobs/${catalogJob.id}`, {
+        method: "PUT",
+        headers: catalogHeaders,
+        body: JSON.stringify({
+          title: jobTitle,
+          category: "Pruebas",
+          budget: "Gs. 250.000",
+          place: "Fernando de la Mora",
+          date: "Próxima semana",
+          urgent: false,
+        }),
+      });
+      assert.equal(jobUpdate.status, 200);
+      assert.equal((await jobUpdate.json()).urgent, false);
+      const jobArchive = await fetch(`${url}/api/admin/jobs/${catalogJob.id}`, {
+        method: "DELETE",
+        headers: catalogHeaders,
+      });
+      assert.equal(jobArchive.status, 200);
+      assert.equal((await jobArchive.json()).archived, catalogJob.id);
+      const archivedJobSearch = await fetch(`${url}/api/jobs?category=Pruebas`);
+      assert.equal(archivedJobSearch.status, 200);
+      assert.equal(
+        (await archivedJobSearch.json()).some(
+          (item) => item.id === catalogJob.id,
+        ),
+        false,
+      );
+      const catalogAudit = await fetch(`${url}/api/admin/audit`, {
+        headers: catalogHeaders,
+      });
+      assert.equal(catalogAudit.status, 200);
+      const catalogAuditEntries = await catalogAudit.json();
+      assert.ok(
+        catalogAuditEntries.some(
+          (entry) =>
+            entry.action === "professional.archived" &&
+            entry.entityId === String(catalogProfessional.id),
+        ),
+      );
+      assert.ok(
+        catalogAuditEntries.some(
+          (entry) =>
+            entry.action === "job.archived" &&
+            entry.entityId === String(catalogJob.id),
+        ),
+      );
       const accountSearch = await fetch(
         `${url}/api/admin/users?query=Prueba%20PostgreSQL&limit=5`,
         { headers: { Authorization: `Bearer ${admin.token}` } },

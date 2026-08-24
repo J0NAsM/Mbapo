@@ -5,6 +5,32 @@ function pageValues(page, limit) {
   return { limit, offset: (page - 1) * limit };
 }
 
+async function nextIntegerId(client, table) {
+  const result = await client.query(
+    `SELECT COALESCE(MAX(id), 0) + 1 AS id FROM ${table}`,
+  );
+  return Number(result.rows[0].id);
+}
+
+async function appendAudit(client, audit) {
+  await client.query("LOCK TABLE audit_log IN EXCLUSIVE MODE");
+  const id = await nextIntegerId(client, "audit_log");
+  await client.query(
+    "INSERT INTO audit_log (id, payload, actor_account_id) VALUES ($1,$2::jsonb,$3)",
+    [id, JSON.stringify({ id, ...audit }), audit.actorId || null],
+  );
+}
+
+function initialsFor(name) {
+  return String(name || "MB")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+}
+
 export function createCatalogRepository(pool) {
   if (!pool) return null;
   return {
@@ -87,6 +113,197 @@ export function createCatalogRepository(pool) {
         items: items.rows.map((row) => row.payload),
         total: total.rows[0].total,
       };
+    },
+    async createProfessional(input) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("LOCK TABLE professionals IN EXCLUSIVE MODE");
+        const id = await nextIntegerId(client, "professionals");
+        const professional = {
+          id,
+          initials: initialsFor(input.details.name),
+          color: "#4f8c78",
+          rating: 0,
+          jobs: 0,
+          verified: false,
+          ...input.details,
+          distance: input.details.distance || "Sin ubicación",
+          available: input.details.available ?? true,
+          tags: input.details.tags || [],
+          text: input.details.text || "",
+        };
+        await client.query(
+          "INSERT INTO professionals (id, payload) VALUES ($1,$2::jsonb)",
+          [id, JSON.stringify(professional)],
+        );
+        await client.query("COMMIT");
+        return { professional };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+    async updateProfessional(input) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await client.query(
+          "SELECT payload FROM professionals WHERE id = $1 FOR UPDATE",
+          [input.professionalId],
+        );
+        const professional = result.rows[0]?.payload;
+        if (!professional) {
+          await client.query("COMMIT");
+          return { error: "missing" };
+        }
+        const updated = { ...professional, ...input.details };
+        await client.query(
+          "UPDATE professionals SET payload = $2::jsonb, updated_at = now() WHERE id = $1",
+          [input.professionalId, JSON.stringify(updated)],
+        );
+        await client.query("COMMIT");
+        return { professional: updated };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+    async archiveProfessional(input) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await client.query(
+          "SELECT payload FROM professionals WHERE id = $1 FOR UPDATE",
+          [input.professionalId],
+        );
+        const professional = result.rows[0]?.payload;
+        if (!professional) {
+          await client.query("COMMIT");
+          return { error: "missing" };
+        }
+        const archived = {
+          ...professional,
+          available: false,
+          archivedAt: input.createdAt,
+        };
+        await client.query(
+          "UPDATE professionals SET payload = $2::jsonb, updated_at = now() WHERE id = $1",
+          [input.professionalId, JSON.stringify(archived)],
+        );
+        await appendAudit(client, {
+          actorId: input.adminId,
+          action: "professional.archived",
+          entity: "professional",
+          entityId: String(input.professionalId),
+          metadata: {},
+          createdAt: input.createdAt,
+        });
+        await client.query("COMMIT");
+        return { archived: input.professionalId };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+    async createJob(input) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("LOCK TABLE jobs IN EXCLUSIVE MODE");
+        const id = await nextIntegerId(client, "jobs");
+        const job = {
+          id,
+          owner: input.adminName,
+          applicants: 0,
+          createdAt: input.createdAt,
+          ...input.details,
+          urgent: input.details.urgent ?? false,
+        };
+        await client.query(
+          "INSERT INTO jobs (id, payload, owner_account_id, created_at, updated_at) VALUES ($1,$2::jsonb,$3,$4,$4)",
+          [id, JSON.stringify(job), input.adminId, input.createdAt],
+        );
+        await client.query("COMMIT");
+        return { job };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+    async updateJob(input) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await client.query(
+          "SELECT payload FROM jobs WHERE id = $1 FOR UPDATE",
+          [input.jobId],
+        );
+        const job = result.rows[0]?.payload;
+        if (!job) {
+          await client.query("COMMIT");
+          return { error: "missing" };
+        }
+        const updated = { ...job, ...input.details };
+        await client.query(
+          "UPDATE jobs SET payload = $2::jsonb, updated_at = now() WHERE id = $1",
+          [input.jobId, JSON.stringify(updated)],
+        );
+        await client.query("COMMIT");
+        return { job: updated };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+    async archiveJob(input) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await client.query(
+          "SELECT payload FROM jobs WHERE id = $1 FOR UPDATE",
+          [input.jobId],
+        );
+        const job = result.rows[0]?.payload;
+        if (!job) {
+          await client.query("COMMIT");
+          return { error: "missing" };
+        }
+        const archived = {
+          ...job,
+          status: "archived",
+          archivedAt: input.createdAt,
+        };
+        await client.query(
+          "UPDATE jobs SET payload = $2::jsonb, updated_at = now() WHERE id = $1",
+          [input.jobId, JSON.stringify(archived)],
+        );
+        await appendAudit(client, {
+          actorId: input.adminId,
+          action: "job.archived",
+          entity: "job",
+          entityId: String(input.jobId),
+          metadata: {},
+          createdAt: input.createdAt,
+        });
+        await client.query("COMMIT");
+        return { archived: input.jobId };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
     },
     async setProfessionalOwner(input) {
       const client = await pool.connect();

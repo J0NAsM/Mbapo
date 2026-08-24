@@ -8,8 +8,10 @@ Sin `DATABASE_URL`, el estado vive en `data/mbapo.json` (o `MBAPO_DATA_PATH`). S
 
 Con `DATABASE_URL`, `database/schema.sql` se aplica al arrancar. Las entidades tienen claves relacionales e índices básicos, pero varios atributos todavía se guardan como JSONB.
 
-Cada escritura usa una transacción, control optimista de `application_state_version`, `TRUNCATE` y reinserción del estado completo. Si otro escritor ganó, se responde `409` (`MBAPO_CONFLICT`).
+Los agregados ya extraídos usan transacciones por entidad: reservas y pagos demo, billetera, mensajes, reseñas, verificaciones, moderación de cuentas, onboarding/disponibilidad y configuración. El CRUD administrativo de `professionals` y `jobs` bloquea solo la fila o tabla necesaria para asignar IDs, conserva el archivado lógico y escribe la auditoría del archivado en la misma transacción. La ruta JSON mantiene el fallback compatible.
+
+El adaptador por snapshot y su versión optimista de `application_state_version` sobreviven solamente para flujos que aún no fueron extraídos. No se usa `TRUNCATE` global.
 
 ## Próximo rediseño
 
-Migrar a operaciones por agregado y migraciones versionadas: reservas, pagos, mensajes y perfiles deben guardarse por entidad, con idempotencia para operaciones monetarias.
+Migrar las escrituras que siguen en el adaptador de snapshot a operaciones por agregado y mantener migraciones versionadas; no volver a introducir guardados globales en comandos ya extraídos.
