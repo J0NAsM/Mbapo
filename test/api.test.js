@@ -9,6 +9,7 @@ process.env.MBAPO_DATA_PATH = join(directory, "state.json");
 process.env.DATABASE_URL = "";
 process.env.MBAPO_AUTH_SECRET = "test-secret-not-for-production";
 process.env.PAYMENTS_MODE = "demo";
+process.env.LOG_LEVEL = "silent";
 const { app } = await import("../server.js");
 const server = app.listen(0);
 const url = `http://127.0.0.1:${server.address().port}`;
@@ -45,6 +46,16 @@ test("protege el dashboard y aísla datos de una nueva cuenta", async () => {
   assert.equal("auditLog" in data, false);
   assert.equal("verifications" in data, false);
   assert.deepEqual(data.messages, []);
+
+  const logout = await fetch(`${url}/api/auth/logout`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${session.token}` },
+  });
+  assert.equal(logout.status, 204);
+  const revokedDashboard = await fetch(`${url}/api/dashboard`, {
+    headers: { Authorization: `Bearer ${session.token}` },
+  });
+  assert.equal(revokedDashboard.status, 401);
 });
 
 test("el servidor impide postulación y cambios de reserva no autorizados", async () => {
@@ -331,6 +342,19 @@ test("vincula una cuenta profesional y restringe su operación a sus propias res
   const paidProfessional = await paidProfessionalDashboard.json();
   assert.ok(paidProfessional.user.balance > 0);
 
+  const reviewResponse = await fetch(`${url}/api/professionals/1/reviews`, {
+    method: "POST",
+    headers: clientHeaders,
+    body: JSON.stringify({
+      bookingId: booking.id,
+      rating: 5,
+      comment: "Trabajo puntual y bien realizado.",
+    }),
+  });
+  assert.equal(reviewResponse.status, 201);
+  const reviews = await fetch(`${url}/api/professionals/1/reviews`);
+  assert.equal((await reviews.json()).total, 1);
+
   const clientMessage = await fetch(`${url}/api/messages`, {
     method: "POST",
     headers: clientHeaders,
@@ -353,4 +377,108 @@ test("vincula una cuenta profesional y restringe su operación a sus propias res
     headers: clientHeaders,
   });
   assert.equal((await messages.json()).at(-1).author, "professional");
+});
+
+test("permite onboarding profesional y evita reservas solapadas", async () => {
+  const professionalRegistration = await fetch(`${url}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "Nueva profesional",
+      email: "nueva-profesional@example.com",
+      password: "password-nueva-profesional-123",
+    }),
+  });
+  const professionalAccount = await professionalRegistration.json();
+  const date = "2035-04-17";
+  const onboarding = await fetch(`${url}/api/professional/onboarding`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${professionalAccount.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      role: "Electricista residencial",
+      price: 120000,
+      tags: ["Electricidad", "Urgencias"],
+      serviceAreas: ["AsunciÃ³n", "Recoleta"],
+      text: "Instalaciones y reparaciones electricas con atencion responsable.",
+      availability: [
+        {
+          day: new Date(`${date}T12:00:00`).getDay(),
+          start: "08:00",
+          end: "18:00",
+        },
+      ],
+    }),
+  });
+  assert.equal(onboarding.status, 201);
+  const professional = await onboarding.json();
+  assert.equal(professional.user.role, "professional");
+
+  const clientRegistration = await fetch(`${url}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "Cliente disponibilidad",
+      email: "cliente-disponibilidad@example.com",
+      password: "password-cliente-disponibilidad-123",
+    }),
+  });
+  const client = await clientRegistration.json();
+  const headers = {
+    Authorization: `Bearer ${client.token}`,
+    "Content-Type": "application/json",
+    "Idempotency-Key": "booking-availability-0001",
+  };
+  const firstBooking = await fetch(`${url}/api/bookings`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      professionalId: professional.professional.id,
+      date,
+      time: "10:00 - 12:00",
+      place: "Recoleta, AsunciÃ³n",
+    }),
+  });
+  assert.equal(firstBooking.status, 201);
+  const firstBookingData = await firstBooking.json();
+  const replayedBooking = await fetch(`${url}/api/bookings`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      professionalId: professional.professional.id,
+      date,
+      time: "10:00 - 12:00",
+      place: "Recoleta, AsunciÃ³n",
+    }),
+  });
+  assert.equal(replayedBooking.status, 201);
+  assert.equal(replayedBooking.headers.get("idempotency-replayed"), "true");
+  assert.equal((await replayedBooking.json()).id, firstBookingData.id);
+
+  const secondClientRegistration = await fetch(`${url}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "Segundo cliente",
+      email: "segundo-cliente@example.com",
+      password: "password-segundo-cliente-123",
+    }),
+  });
+  const secondClient = await secondClientRegistration.json();
+  const overlappingBooking = await fetch(`${url}/api/bookings`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secondClient.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      professionalId: professional.professional.id,
+      date,
+      time: "11:00 - 13:00",
+      place: "Recoleta, AsunciÃ³n",
+    }),
+  });
+  assert.equal(overlappingBooking.status, 409);
 });

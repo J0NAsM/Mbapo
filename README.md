@@ -1,4 +1,5 @@
 # Mbapo
+
 Marketplace de servicios locales para conectar clientes y profesionales. Incluye catálogo, trabajos, reservas, mensajería, reputación, verificación, administración, PWA y un flujo de pagos preparado para Stripe.
 
 > Estado: prototipo funcional. No está autorizado para procesar dinero, identidad o datos personales reales hasta completar los controles de producción.

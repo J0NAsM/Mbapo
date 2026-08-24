@@ -9,6 +9,7 @@
 - Panel de administración con su propio token de administrador.
 - Cola offline en `localStorage` bajo `mbapo-offline-outbox`.
 - Registro de eventos de producto permitidos por `POST /api/events`.
+- Onboarding autoservicio, espacio profesional y solicitudes de verificación conectados a la API real.
 
 ## Cuidado al cambiarlo
 

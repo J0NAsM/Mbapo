@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { apiFetch, sessionTokenKey } from "./lib/api";
 import "./styles.css";
 
 if ("serviceWorker" in navigator)
@@ -8,18 +9,8 @@ if ("serviceWorker" in navigator)
   );
 
 const offlineQueueKey = "mbapo-offline-outbox";
-function apiFetch(url, options = {}) {
-  const token = sessionStorage.getItem("mbapo-session-token");
-  return fetch(url, {
-    ...options,
-    headers: {
-      ...(options.headers || {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
-}
 function trackProductEvent(name, metadata = {}) {
-  if (!sessionStorage.getItem("mbapo-session-token")) return;
+  if (!sessionStorage.getItem(sessionTokenKey)) return;
   apiFetch("/api/events", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -33,10 +24,16 @@ function queuedRequests() {
     return [];
   }
 }
-function enqueueRequest(url, method, body) {
+function enqueueRequest(url, method, body, idempotencyKey) {
   const next = [
     ...queuedRequests(),
-    { url, method, body, queuedAt: Date.now() },
+    {
+      url,
+      method,
+      body,
+      idempotencyKey: idempotencyKey || `offline-${crypto.randomUUID()}`,
+      queuedAt: Date.now(),
+    },
   ];
   localStorage.setItem(offlineQueueKey, JSON.stringify(next));
 }
@@ -49,7 +46,10 @@ async function flushOfflineQueue() {
     try {
       const response = await apiFetch(request.url, {
         method: request.method,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": request.idempotencyKey,
+        },
         body: JSON.stringify(request.body),
       });
       if (!response.ok) pending.push(request);
@@ -344,6 +344,16 @@ function App() {
     setTimeout(() => setNotice(""), 2800);
   };
   const currentUser = dashboard.user?.id ? dashboard.user : session.user;
+  const logout = async () => {
+    try {
+      await apiFetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      sessionStorage.removeItem("mbapo-session");
+      sessionStorage.removeItem(sessionTokenKey);
+      setSession(null);
+      setView("discover");
+    }
+  };
   const initials = (currentUser?.name || "MB")
     .split(/\s+/)
     .slice(0, 2)
@@ -406,12 +416,16 @@ function App() {
       createdAt: "Ahora",
     };
     const payload = { professionalId: 1, text: pending.text };
+    const idempotencyKey = `message-${crypto.randomUUID()}`;
     setConversation((v) => [...v, pending]);
     setMessage("");
     try {
       const response = await apiFetch("/api/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
         body: JSON.stringify(payload),
       });
       if (!response.ok) throw Error();
@@ -421,7 +435,7 @@ function App() {
       );
       announce("Mensaje enviado a Rocío.");
     } catch {
-      enqueueRequest("/api/messages", "POST", payload);
+      enqueueRequest("/api/messages", "POST", payload, idempotencyKey);
       announce("Mensaje guardado y se enviará al recuperar conexión.");
     }
   };
@@ -444,7 +458,7 @@ function App() {
       <UserAccess
         onLogin={(data) => {
           sessionStorage.setItem("mbapo-session", JSON.stringify(data));
-          sessionStorage.setItem("mbapo-session-token", data.token);
+          sessionStorage.setItem(sessionTokenKey, data.token);
           setSession(data);
         }}
       />
@@ -502,7 +516,7 @@ function App() {
       </aside>
       <main>
         {notice && <div className="toast">✓ {notice}</div>}
-        {view === "discover" && (
+        {view === "discover" && role !== "professional" && (
           <Discover
             filtered={filtered}
             query={query}
@@ -524,6 +538,13 @@ function App() {
               setSelectedProfessional(professional);
               setModal("book");
             }}
+          />
+        )}
+        {view === "discover" && role === "professional" && (
+          <ProfessionalHome
+            workspace={professionalWorkspace}
+            setView={setView}
+            announce={announce}
           />
         )}
         {view === "search" && (
@@ -571,6 +592,7 @@ function App() {
         )}
         {view === "messages" && (
           <Messages
+            role={role}
             conversation={conversation}
             message={message}
             setMessage={setMessage}
@@ -591,6 +613,8 @@ function App() {
             onReferralShare={shareReferral}
             onWallet={() => setView("wallet")}
             onAdmin={() => setView("admin")}
+            onOnboarding={() => setModal("onboarding")}
+            onLogout={logout}
           />
         )}
         {view === "admin" &&
@@ -626,6 +650,18 @@ function App() {
             announce={announce}
             reload={loadDashboard}
             professional={selectedProfessional}
+          />
+        ) : modal === "onboarding" ? (
+          <OnboardingFlow
+            close={() => setModal(null)}
+            announce={announce}
+            reload={loadDashboard}
+            onSession={(data) => {
+              sessionStorage.setItem("mbapo-session", JSON.stringify(data));
+              sessionStorage.setItem(sessionTokenKey, data.token);
+              setSession(data);
+              setView("discover");
+            }}
           />
         ) : (
           <ModalNew
@@ -993,6 +1029,7 @@ function Jobs({ setModal, announce, jobs: jobList }) {
 
 function BookingAgenda({ bookings, role, reload, announce }) {
   const [savingId, setSavingId] = useState(null);
+  const [reviewBooking, setReviewBooking] = useState(null);
   const awaitingClientConfirmation = "Esperando tu confirmaci\u00f3n";
   const nextStatus = (booking) => {
     if (role === "professional") {
@@ -1099,9 +1136,88 @@ function BookingAgenda({ bookings, role, reload, announce }) {
                 {savingId === booking.id ? "Guardando..." : labelFor(booking)}
               </button>
             )}
+            {role === "client" && booking.status === "Completada" && (
+              <button onClick={() => setReviewBooking(booking)}>
+                Calificar
+              </button>
+            )}
           </div>
         ))}
       </section>
+      {reviewBooking && (
+        <ReviewFlow
+          booking={reviewBooking}
+          close={() => setReviewBooking(null)}
+          announce={announce}
+          reload={reload}
+        />
+      )}
+    </div>
+  );
+}
+
+function ReviewFlow({ booking, close, announce, reload }) {
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const submit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    const form = new FormData(event.currentTarget);
+    try {
+      const response = await apiFetch(
+        `/api/professionals/${booking.professionalId}/reviews`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            bookingId: booking.id,
+            rating: form.get("rating"),
+            comment: form.get("comment"),
+          }),
+        },
+      );
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      await reload();
+      close();
+      announce("Gracias por compartir tu experiencia.");
+    } catch (submitError) {
+      setError(submitError.message || "No pudimos guardar la reseña.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="overlay" onMouseDown={close}>
+      <form
+        className="modal"
+        onMouseDown={(event) => event.stopPropagation()}
+        onSubmit={submit}
+      >
+        <button type="button" className="close" onClick={close}>
+          ×
+        </button>
+        <p className="eyebrow">SERVICIO FINALIZADO</p>
+        <h2>Calificá tu experiencia</h2>
+        <label>
+          Puntaje
+          <select name="rating" defaultValue="5">
+            <option value="5">5 · Excelente</option>
+            <option value="4">4 · Muy bueno</option>
+            <option value="3">3 · Bueno</option>
+            <option value="2">2 · Regular</option>
+            <option value="1">1 · Malo</option>
+          </select>
+        </label>
+        <label>
+          Comentario
+          <textarea name="comment" required minLength="3" maxLength="800" />
+        </label>
+        {error && <p className="form-error">{error}</p>}
+        <button className="modal-primary" disabled={saving}>
+          {saving ? "Guardando..." : "Publicar reseña"}
+        </button>
+      </form>
     </div>
   );
 }
@@ -1169,7 +1285,169 @@ function Calendar({ bookings, role, reload, announce, setModal }) {
   );
 }
 
-function Messages({ conversation, message, setMessage, send }) {
+function messageTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value || ""
+    : new Intl.DateTimeFormat("es-PY", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(date);
+}
+
+function Messages({ role }) {
+  const [conversations, setConversations] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState("");
+  const loadConversations = useCallback(async () => {
+    try {
+      const response = await apiFetch("/api/conversations");
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      setConversations(data);
+      setSelected((current) => current || data[0] || null);
+    } catch (requestError) {
+      setError(requestError.message || "No pudimos cargar las conversaciones.");
+    }
+  }, []);
+  const loadMessages = useCallback(async () => {
+    if (!selected) return setMessages([]);
+    try {
+      const search =
+        role === "professional" ? `?clientId=${selected.clientId}` : "";
+      const response = await apiFetch(
+        `/api/messages/${selected.professionalId}${search}`,
+      );
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      setMessages(data);
+      const unread = data.filter(
+        (item) =>
+          !item.readAt &&
+          ((role === "professional" && item.author === "client") ||
+            (role !== "professional" && item.author === "professional")),
+      );
+      await Promise.all(
+        unread.map((item) =>
+          apiFetch(`/api/messages/${item.id}/read`, { method: "PATCH" }),
+        ),
+      );
+      if (unread.length) loadConversations();
+    } catch (requestError) {
+      setError(requestError.message || "No pudimos cargar los mensajes.");
+    }
+  }, [loadConversations, role, selected]);
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
+  useEffect(() => {
+    loadMessages();
+  }, [loadMessages]);
+  const sendMessage = async (event) => {
+    event.preventDefault();
+    if (!selected || !draft.trim()) return;
+    try {
+      const url =
+        role === "professional"
+          ? "/api/professional/messages"
+          : "/api/messages";
+      const body =
+        role === "professional"
+          ? { clientId: selected.clientId, text: draft.trim() }
+          : { professionalId: selected.professionalId, text: draft.trim() };
+      const response = await apiFetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": `message-${crypto.randomUUID()}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      setMessages((current) => [...current, data]);
+      setDraft("");
+      loadConversations();
+    } catch (requestError) {
+      setError(requestError.message || "No pudimos enviar el mensaje.");
+    }
+  };
+  return (
+    <div className="messages-page">
+      <aside className="threads">
+        <div className="thread-head">
+          <h2>Mensajes</h2>
+        </div>
+        {conversations.map((item) => (
+          <button
+            className={`thread ${selected?.professionalId === item.professionalId && selected?.clientId === item.clientId ? "active" : ""}`}
+            key={`${item.professionalId}-${item.clientId}`}
+            onClick={() => setSelected(item)}
+          >
+            {item.partner.initials ? (
+              <Avatar person={item.partner} size="small" />
+            ) : (
+              <span className="mini-avatar">
+                {item.partner.name.slice(0, 1)}
+              </span>
+            )}
+            <div>
+              <b>{item.partner.name}</b>
+              <p>{item.lastMessage?.text || "Sin mensajes"}</p>
+            </div>
+            <small>{messageTime(item.lastMessage?.createdAt)}</small>
+            {item.unreadCount > 0 && <em>{item.unreadCount}</em>}
+          </button>
+        ))}
+        {!conversations.length && (
+          <p className="empty">Todavía no tenés conversaciones.</p>
+        )}
+      </aside>
+      <section className="chat">
+        {selected ? (
+          <>
+            <header>
+              <div>
+                <b>{selected.partner.name}</b>
+                <p>{role === "professional" ? "Cliente" : "Profesional"}</p>
+              </div>
+            </header>
+            <div className="chat-body">
+              {messages.map((item) => (
+                <div
+                  className={`bubble ${item.author === "professional" ? (role === "professional" ? "me" : "them") : role === "professional" ? "them" : "me"}`}
+                  key={item.id}
+                >
+                  {item.text}
+                  <small>{messageTime(item.createdAt)}</small>
+                </div>
+              ))}
+            </div>
+            <form className="message-box" onSubmit={sendMessage}>
+              <input
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder="Escribí un mensaje..."
+                maxLength="1500"
+              />
+              <button className="send" aria-label="Enviar">
+                ↑
+              </button>
+            </form>
+          </>
+        ) : (
+          <div className="empty">Elegí una conversación para empezar.</div>
+        )}
+        {error && <p className="form-error">{error}</p>}
+      </section>
+    </div>
+  );
+}
+
+/* eslint-disable no-unused-vars -- preserved while the conversation center is rolled out. */
+function LegacyMessages({ conversation, message, setMessage, send }) {
   return (
     <div className="messages-page">
       <aside className="threads">
@@ -1247,6 +1525,8 @@ function Messages({ conversation, message, setMessage, send }) {
   );
 }
 
+/* eslint-enable no-unused-vars */
+
 function Wallet({ setModal, user, transactions = [] }) {
   const guaranies = (value) =>
     `Gs. ${Number(value || 0).toLocaleString("es-PY")}`;
@@ -1302,7 +1582,278 @@ function Wallet({ setModal, user, transactions = [] }) {
   );
 }
 
-function Profile({ role, setRole, user, onWallet, onAdmin, onReferralShare }) {
+function ProfessionalHome({ workspace, setView, announce }) {
+  if (!workspace)
+    return (
+      <section className="content-page">
+        <p>Cargando tu espacio profesional...</p>
+      </section>
+    );
+  const {
+    professional,
+    bookings = [],
+    applications = [],
+    conversations = [],
+  } = workspace;
+  const pending = bookings.filter(
+    (booking) =>
+      booking.status !== "Completada" && booking.status !== "Cancelada",
+  );
+  return (
+    <section className="content-page">
+      <header className="page-title">
+        <div>
+          <p className="eyebrow">ESPACIO PROFESIONAL</p>
+          <h1>Hola, {professional.name}</h1>
+          <p>Gestiona tus solicitudes, agenda, conversaciones y cobros.</p>
+        </div>
+        <button className="publish" onClick={() => setView("calendar")}>
+          Ver agenda
+        </button>
+      </header>
+      <div className="admin-summary">
+        <span>
+          <b>{pending.length}</b> reservas activas
+        </span>
+        <span>
+          <b>{applications.length}</b> postulaciones
+        </span>
+        <span>
+          <b>{conversations.length}</b> conversaciones
+        </span>
+        <span>
+          <b>{professional.available ? "Activo" : "Pausado"}</b> estado
+        </span>
+      </div>
+      <section className="admin-section">
+        <div>
+          <h2>Próximas acciones</h2>
+          <p>
+            Las acciones de cada reserva se habilitan según su estado y pago.
+          </p>
+        </div>
+        {pending.slice(0, 3).map((booking) => (
+          <div className="appointment" key={booking.id}>
+            <time>
+              {booking.date}
+              <br />
+              <small>{booking.time}</small>
+            </time>
+            <div>
+              <b>{booking.title}</b>
+              <p>{booking.status}</p>
+            </div>
+            <button onClick={() => setView("calendar")}>Gestionar</button>
+          </div>
+        ))}
+        {!pending.length && (
+          <p className="empty">No tenés reservas pendientes.</p>
+        )}
+      </section>
+      <section className="admin-section">
+        <div>
+          <h2>Perfil y disponibilidad</h2>
+          <p>
+            {professional.serviceAreas?.join(" · ") ||
+              "Definí tus zonas de servicio"}
+          </p>
+        </div>
+        <button className="filter" onClick={() => setView("profile")}>
+          Editar perfil
+        </button>
+        <button
+          className="filter"
+          onClick={() =>
+            announce("Tu disponibilidad se actualiza desde el perfil.")
+          }
+        >
+          Ver horarios
+        </button>
+      </section>
+    </section>
+  );
+}
+
+function VerificationRequests() {
+  const [requests, setRequests] = useState([]);
+  const [error, setError] = useState("");
+  const load = async () => {
+    try {
+      const response = await apiFetch("/api/verifications");
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      setRequests(data);
+    } catch (requestError) {
+      setError(requestError.message || "No pudimos cargar tus verificaciones.");
+    }
+  };
+  useEffect(() => {
+    load();
+  }, []);
+  const request = async (kind) => {
+    try {
+      const response = await apiFetch("/api/verifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      await load();
+    } catch (requestError) {
+      setError(requestError.message || "No pudimos enviar la solicitud.");
+    }
+  };
+  return (
+    <article>
+      <span>✓</span>
+      <div>
+        <h3>Verificaciones</h3>
+        <p>
+          {requests.length
+            ? requests.map((item) => `${item.kind}: ${item.status}`).join(" · ")
+            : "Solicitá una revisión de identidad o perfil profesional."}
+        </p>
+        {error && <p className="form-error">{error}</p>}
+      </div>
+      <div className="role-toggle">
+        <button onClick={() => request("identity")}>Identidad</button>
+        <button onClick={() => request("professional")}>Profesional</button>
+      </div>
+    </article>
+  );
+}
+
+function OnboardingFlow({ close, announce, reload, onSession }) {
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const submit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    const form = new FormData(event.currentTarget);
+    const availability = [1, 2, 3, 4, 5]
+      .filter((day) => form.get(`day-${day}`))
+      .map((day) => ({
+        day,
+        start: form.get("start"),
+        end: form.get("end"),
+      }));
+    try {
+      const response = await apiFetch("/api/professional/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: form.get("role"),
+          price: form.get("price"),
+          tags: String(form.get("tags"))
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean),
+          serviceAreas: String(form.get("serviceAreas"))
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean),
+          text: form.get("text"),
+          availability,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      onSession(data);
+      await reload();
+      close();
+      announce("Tu perfil profesional está listo.");
+    } catch (submitError) {
+      setError(submitError.message || "No pudimos completar el onboarding.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="overlay" onMouseDown={close}>
+      <form
+        className="modal"
+        onMouseDown={(event) => event.stopPropagation()}
+        onSubmit={submit}
+      >
+        <button type="button" className="close" onClick={close}>
+          ×
+        </button>
+        <p className="eyebrow">PERFIL PROFESIONAL</p>
+        <h2>Empezá a ofrecer servicios</h2>
+        <label>
+          Servicio principal
+          <input
+            name="role"
+            required
+            placeholder="Ej. Electricista residencial"
+          />
+        </label>
+        <label>
+          Precio desde Gs.
+          <input
+            name="price"
+            required
+            inputMode="numeric"
+            placeholder="95000"
+          />
+        </label>
+        <label>
+          Servicios (separados por coma)
+          <input name="tags" required placeholder="Instalaciones, Urgencias" />
+        </label>
+        <label>
+          Zonas de servicio (separadas por coma)
+          <input
+            name="serviceAreas"
+            required
+            placeholder="Asunción, Recoleta"
+          />
+        </label>
+        <label>
+          Presentación
+          <textarea
+            name="text"
+            required
+            minLength="20"
+            placeholder="Contá tu experiencia y qué servicios realizás."
+          />
+        </label>
+        <fieldset className="filter-panel">
+          <legend>Horarios semanales</legend>
+          {["Lun", "Mar", "Mié", "Jue", "Vie"].map((label, index) => (
+            <label key={label}>
+              <input name={`day-${index + 1}`} type="checkbox" defaultChecked />{" "}
+              {label}
+            </label>
+          ))}
+          <label>
+            Desde <input name="start" type="time" defaultValue="08:00" />
+          </label>
+          <label>
+            Hasta <input name="end" type="time" defaultValue="18:00" />
+          </label>
+        </fieldset>
+        {error && <p className="form-error">{error}</p>}
+        <button className="modal-primary" disabled={saving}>
+          {saving ? "Guardando..." : "Crear perfil profesional"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function Profile({
+  role,
+  setRole,
+  user,
+  onWallet,
+  onAdmin,
+  onReferralShare,
+  onOnboarding,
+  onLogout,
+}) {
   const initials = (user?.name || "MB")
     .split(/\s+/)
     .slice(0, 2)
@@ -1316,6 +1867,9 @@ function Profile({ role, setRole, user, onWallet, onAdmin, onReferralShare }) {
           <p className="eyebrow">TU CUENTA</p>
           <h1>Perfil y preferencias</h1>
           <p>Una misma cuenta para contratar y ofrecer servicios.</p>
+          <button className="filter" onClick={onLogout}>
+            Cerrar sesión
+          </button>
         </div>
       </header>
       <section className="profile-card">
@@ -1334,6 +1888,19 @@ function Profile({ role, setRole, user, onWallet, onAdmin, onReferralShare }) {
         </div>
       </section>
       <section className="profile-options">
+        <VerificationRequests />
+        {role === "client" && (
+          <article>
+            <span>+</span>
+            <div>
+              <h3>Ofrecer servicios</h3>
+              <p>CreÃ¡ tu perfil profesional, zonas, precios y horarios.</p>
+            </div>
+            <button className="link-btn" onClick={onOnboarding}>
+              Empezar â†’
+            </button>
+          </article>
+        )}
         <article>
           <span>↔</span>
           <div>
@@ -1573,10 +2140,14 @@ function ModalNew({ kind, close, announce, reload }) {
                 },
               ]
             : ["/api/withdrawals", "POST", { amount: form.get("amount") }];
+    const idempotencyKey = `form-${crypto.randomUUID()}`;
     try {
       const response = await apiFetch(url, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
         body: JSON.stringify(body),
       });
       const result = await response.json();
@@ -1595,7 +2166,7 @@ function ModalNew({ kind, close, announce, reload }) {
       );
     } catch (err) {
       if (!navigator.onLine || /fetch|network/i.test(err.message || "")) {
-        enqueueRequest(url, method, body);
+        enqueueRequest(url, method, body, idempotencyKey);
         close();
         announce(
           "Guardamos esta acción y se sincronizará al recuperar conexión.",
@@ -1751,6 +2322,7 @@ function BookingFlow({
   const [place, setPlace] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [idempotencyKey] = useState(() => `booking-${crypto.randomUUID()}`);
   const next = (event) => {
     event.preventDefault();
     if (step === 2 && !date) return setError("Elegí una fecha para continuar.");
@@ -1766,7 +2338,10 @@ function BookingFlow({
     try {
       const response = await apiFetch("/api/bookings", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
         body: JSON.stringify({
           professionalId: professional.id,
           date,
@@ -2399,6 +2974,18 @@ function AdminPanel({ session, onLogout, announce }) {
               <option value="professional">Profesional</option>
               <option value="admin">Administrador</option>
             </select>
+            <select
+              value={user.status || "active"}
+              aria-label={`Estado de ${user.name}`}
+              onChange={(event) =>
+                request(`/api/admin/users/${user.id}`, "PATCH", {
+                  status: event.target.value,
+                }).catch((err) => setError(err.message))
+              }
+            >
+              <option value="active">Activa</option>
+              <option value="blocked">Bloqueada</option>
+            </select>
             <label>
               <input
                 type="checkbox"
@@ -2413,6 +3000,57 @@ function AdminPanel({ session, onLogout, announce }) {
             </label>
           </div>
         ))}
+      </section>
+      <section className="admin-section">
+        <div>
+          <h2>Verificaciones</h2>
+          <p>
+            Revisá solicitudes pendientes sin almacenar documentos en Mbapo.
+          </p>
+        </div>
+        {(state.verifications || []).map((verification) => (
+          <div className="admin-row users" key={verification.id}>
+            <span>
+              <b>{verification.kind}</b>
+              <small>{verification.status}</small>
+            </span>
+            {verification.status === "pending" && (
+              <>
+                <button
+                  className="filter"
+                  onClick={() =>
+                    request(
+                      `/api/admin/verifications/${verification.id}`,
+                      "PATCH",
+                      { status: "approved" },
+                    )
+                      .then(() => announce("Verificación aprobada."))
+                      .catch((err) => setError(err.message))
+                  }
+                >
+                  Aprobar
+                </button>
+                <button
+                  className="danger"
+                  onClick={() =>
+                    request(
+                      `/api/admin/verifications/${verification.id}`,
+                      "PATCH",
+                      { status: "rejected" },
+                    )
+                      .then(() => announce("Verificación rechazada."))
+                      .catch((err) => setError(err.message))
+                  }
+                >
+                  Rechazar
+                </button>
+              </>
+            )}
+          </div>
+        ))}
+        {!(state.verifications || []).length && (
+          <p className="empty">No hay solicitudes.</p>
+        )}
       </section>
     </section>
   );

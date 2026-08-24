@@ -1,5 +1,7 @@
 # Índice del vault
 
+Cambios y siguiente paso: [[12_AUDITORIA_ANALISIS/MODERNIZACION_ACTUAL]].
+
 | Área                | Punto de entrada                       | Uso                                  |
 | ------------------- | -------------------------------------- | ------------------------------------ |
 | Proyecto            | [[01_PROYECTO/RESUMEN]]                | propósito, alcance y estado          |

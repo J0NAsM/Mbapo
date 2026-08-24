@@ -1,5 +1,12 @@
 import express from "express";
-import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  writeFile,
+} from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -19,7 +26,38 @@ const root = dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.MBAPO_DATA_PATH || join(root, "data", "mbapo.json");
 const isProduction = process.env.NODE_ENV === "production";
 const schemaPath = join(root, "database", "schema.sql");
+const migrationsPath = join(root, "database", "migrations");
 const app = express();
+const startedAt = Date.now();
+const requestMetrics = { total: 0, byStatus: {}, byRoute: {} };
+const structuredLogs = process.env.LOG_LEVEL !== "silent";
+if (process.env.TRUST_PROXY === "true") app.set("trust proxy", 1);
+app.use((req, res, next) => {
+  const requestId = randomBytes(8).toString("hex");
+  const started = Date.now();
+  req.requestId = requestId;
+  res.setHeader("X-Request-Id", requestId);
+  res.on("finish", () => {
+    const route = req.route?.path || req.path;
+    requestMetrics.total += 1;
+    requestMetrics.byStatus[res.statusCode] =
+      (requestMetrics.byStatus[res.statusCode] || 0) + 1;
+    requestMetrics.byRoute[route] = (requestMetrics.byRoute[route] || 0) + 1;
+    if (structuredLogs)
+      console.log(
+        JSON.stringify({
+          level: "info",
+          event: "http.request",
+          requestId,
+          method: req.method,
+          path: req.path,
+          status: res.statusCode,
+          durationMs: Date.now() - started,
+        }),
+      );
+  });
+  next();
+});
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -333,6 +371,7 @@ function toAuthUser(user, password) {
     email: user.email,
     role: user.role,
     verified: user.verified,
+    status: "active",
     tokenVersion: 0,
     password: passwordRecord(password),
     createdAt: new Date().toISOString(),
@@ -344,6 +383,8 @@ function ensureSystemData(data) {
   data.verifications ||= [];
   data.auditLog ||= [];
   data.growthEvents ||= [];
+  data.idempotencyKeys ||= [];
+  data.notifications ||= [];
   data.userProfiles ||= {};
   if (data.user?.id && !data.userProfiles[data.user.id])
     data.userProfiles[data.user.id] = data.user;
@@ -351,7 +392,10 @@ function ensureSystemData(data) {
     transaction.userId ||= data.user?.id;
   for (const booking of data.bookings || []) booking.clientId ||= data.user?.id;
   for (const message of data.messages || []) message.clientId ||= data.user?.id;
-  for (const user of data.authUsers) user.tokenVersion ||= 0;
+  for (const user of data.authUsers) {
+    user.tokenVersion ||= 0;
+    user.status ||= "active";
+  }
   for (const profile of Object.values(data.userProfiles)) {
     profile.favorites ||= [];
     profile.savedSearches ||= [];
@@ -577,6 +621,8 @@ async function requireAuth(req, res, next) {
   const account = db.authUsers.find((item) => item.id === payload.sub);
   if (!account || account.tokenVersion !== payload.ver)
     return fail(res, "La sesión ya no es válida", 401);
+  if (account.status === "blocked")
+    return fail(res, "Esta cuenta estÃ¡ bloqueada", 403);
   req.account = account;
   req.profile = profileFor(db, account);
   req.db = db;
@@ -595,8 +641,41 @@ async function requireAdmin(req, res, next) {
 }
 async function setupPostgres() {
   if (postgresReady) return;
-  const sql = await readFile(schemaPath, "utf8");
-  await pool.query(sql);
+  await pool.query(
+    "CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())",
+  );
+  const migrationFiles = await readdir(migrationsPath).catch(() => []);
+  const migrations = [
+    { name: "001_initial", sql: await readFile(schemaPath, "utf8") },
+    ...(await Promise.all(
+      migrationFiles
+        .filter((file) => file.endsWith(".sql"))
+        .sort()
+        .map(async (file) => ({
+          name: file.replace(/\.sql$/, ""),
+          sql: await readFile(join(migrationsPath, file), "utf8"),
+        })),
+    )),
+  ];
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const applied = await client.query("SELECT name FROM schema_migrations");
+    const appliedNames = new Set(applied.rows.map((row) => row.name));
+    for (const migration of migrations) {
+      if (appliedNames.has(migration.name)) continue;
+      await client.query(migration.sql);
+      await client.query("INSERT INTO schema_migrations (name) VALUES ($1)", [
+        migration.name,
+      ]);
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
   postgresReady = true;
 }
 async function loadPostgresData() {
@@ -614,11 +693,13 @@ async function loadPostgresData() {
     verifications,
     auditLog,
     growthEvents,
+    idempotencyKeys,
+    notifications,
   ] = await Promise.all([
     pool.query("SELECT payload FROM platform_settings WHERE id = 1"),
     pool.query("SELECT version FROM application_state_version WHERE id = 1"),
     pool.query(
-      "SELECT id, name, email, role, verified, password_salt, password_hash, token_version, created_at FROM accounts",
+      "SELECT id, name, email, role, verified, status, password_salt, password_hash, token_version, created_at FROM accounts",
     ),
     pool.query("SELECT account_id, payload FROM user_profiles"),
     pool.query("SELECT payload FROM professionals ORDER BY id"),
@@ -630,6 +711,12 @@ async function loadPostgresData() {
     pool.query("SELECT payload FROM verifications ORDER BY id"),
     pool.query("SELECT payload FROM audit_log ORDER BY id DESC"),
     pool.query("SELECT payload FROM growth_events ORDER BY occurred_at DESC"),
+    pool.query(
+      "SELECT account_id, key, method, path, response_status, response_body, created_at FROM idempotency_keys WHERE created_at > now() - interval '24 hours'",
+    ),
+    pool.query(
+      "SELECT id, account_id, type, title, body, read_at, created_at FROM notifications ORDER BY created_at DESC",
+    ),
   ]);
   return {
     __version: Number(version.rows[0]?.version || 0),
@@ -640,6 +727,7 @@ async function loadPostgresData() {
       email: row.email,
       role: row.role,
       verified: row.verified,
+      status: row.status || "active",
       tokenVersion: row.token_version,
       password: { salt: row.password_salt, hash: row.password_hash },
       createdAt: row.created_at,
@@ -656,12 +744,30 @@ async function loadPostgresData() {
     verifications: verifications.rows.map((row) => row.payload),
     auditLog: auditLog.rows.map((row) => row.payload),
     growthEvents: growthEvents.rows.map((row) => row.payload),
+    idempotencyKeys: idempotencyKeys.rows.map((row) => ({
+      accountId: row.account_id,
+      key: row.key,
+      method: row.method,
+      path: row.path,
+      status: row.response_status,
+      body: row.response_body,
+      createdAt: row.created_at,
+    })),
+    notifications: notifications.rows.map((row) => ({
+      id: row.id,
+      accountId: row.account_id,
+      type: row.type,
+      title: row.title,
+      body: row.body,
+      readAt: row.read_at,
+      createdAt: row.created_at,
+    })),
   };
 }
 async function insertPayloads(client, table, items, foreignKey) {
   for (const item of items || [])
     await client.query(
-      `INSERT INTO ${table} (id, payload${foreignKey ? `, ${foreignKey.column}` : ""}) VALUES ($1, $2::jsonb${foreignKey ? ", $3" : ""})`,
+      `INSERT INTO ${table} (id, payload${foreignKey ? `, ${foreignKey.column}` : ""}) VALUES ($1, $2::jsonb${foreignKey ? ", $3" : ""}) ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload${foreignKey ? `, ${foreignKey.column} = EXCLUDED.${foreignKey.column}` : ""}`,
       foreignKey
         ? [item.id, JSON.stringify(item), foreignKey.value(item)]
         : [item.id, JSON.stringify(item)],
@@ -683,21 +789,19 @@ async function savePostgres(data) {
       throw error;
     }
     await client.query(
-      "TRUNCATE TABLE platform_settings, user_profiles, growth_events, audit_log, verifications, reviews, transactions, messages, bookings, jobs, professionals, accounts CASCADE",
-    );
-    await client.query(
-      "INSERT INTO platform_settings (id, payload) VALUES (1, $1::jsonb)",
+      "INSERT INTO platform_settings (id, payload, updated_at) VALUES (1, $1::jsonb, now()) ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()",
       [JSON.stringify(data.platform)],
     );
     for (const user of data.authUsers || [])
       await client.query(
-        "INSERT INTO accounts (id, name, email, role, verified, password_salt, password_hash, token_version, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        "INSERT INTO accounts (id, name, email, role, verified, status, password_salt, password_hash, token_version, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email, role = EXCLUDED.role, verified = EXCLUDED.verified, status = EXCLUDED.status, password_salt = EXCLUDED.password_salt, password_hash = EXCLUDED.password_hash, token_version = EXCLUDED.token_version",
         [
           user.id,
           user.name,
           user.email,
           user.role,
           Boolean(user.verified),
+          user.status || "active",
           user.password.salt,
           user.password.hash,
           Number(user.tokenVersion || 0),
@@ -706,7 +810,7 @@ async function savePostgres(data) {
       );
     for (const profile of Object.values(data.userProfiles || {}))
       await client.query(
-        "INSERT INTO user_profiles (account_id, payload) VALUES ($1, $2::jsonb)",
+        "INSERT INTO user_profiles (account_id, payload, updated_at) VALUES ($1, $2::jsonb, now()) ON CONFLICT (account_id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()",
         [profile.id, JSON.stringify(profile)],
       );
     await insertPayloads(client, "professionals", data.professionals, {
@@ -741,7 +845,7 @@ async function savePostgres(data) {
     });
     for (const review of data.reviews || [])
       await client.query(
-        "INSERT INTO reviews (id, payload, booking_id, account_id, professional_id) VALUES ($1,$2::jsonb,$3,$4,$5)",
+        "INSERT INTO reviews (id, payload, booking_id, account_id, professional_id) VALUES ($1,$2::jsonb,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, booking_id = EXCLUDED.booking_id, account_id = EXCLUDED.account_id, professional_id = EXCLUDED.professional_id",
         [
           review.id,
           JSON.stringify(review),
@@ -768,6 +872,35 @@ async function savePostgres(data) {
           ? item.actorId
           : null,
     });
+    await client.query(
+      "DELETE FROM idempotency_keys WHERE created_at < now() - interval '24 hours'",
+    );
+    for (const record of data.idempotencyKeys || [])
+      await client.query(
+        "INSERT INTO idempotency_keys (account_id, key, method, path, response_status, response_body, created_at) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7) ON CONFLICT (account_id, key, method, path) DO UPDATE SET response_status = EXCLUDED.response_status, response_body = EXCLUDED.response_body, created_at = EXCLUDED.created_at",
+        [
+          record.accountId,
+          record.key,
+          record.method,
+          record.path,
+          record.status,
+          JSON.stringify(record.body),
+          record.createdAt || new Date().toISOString(),
+        ],
+      );
+    for (const notification of data.notifications || [])
+      await client.query(
+        "INSERT INTO notifications (id, account_id, type, title, body, read_at, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET read_at = EXCLUDED.read_at, title = EXCLUDED.title, body = EXCLUDED.body",
+        [
+          notification.id,
+          notification.accountId,
+          notification.type,
+          notification.title,
+          notification.body,
+          notification.readAt || null,
+          notification.createdAt || new Date().toISOString(),
+        ],
+      );
     data.__version = Number(updated.rows[0].version);
     await client.query("COMMIT");
   } catch (error) {
@@ -847,11 +980,57 @@ async function save(data) {
 function nextId(items) {
   return Math.max(0, ...items.map((item) => Number(item.id) || 0)) + 1;
 }
+function initialsFor(name) {
+  return String(name || "MB")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+}
 function money(value) {
   return Number(String(value || 0).replace(/[^0-9]/g, "")) || 0;
 }
 function fail(res, message, status = 400) {
   return res.status(status).json({ error: message });
+}
+function replayIdempotentRequest(req, res) {
+  const key = String(req.headers["idempotency-key"] || "").trim();
+  if (!key) return false;
+  if (key.length < 8 || key.length > 160) {
+    fail(res, "Idempotency-Key invÃ¡lido");
+    return true;
+  }
+  const record = (req.db.idempotencyKeys || []).find(
+    (item) =>
+      item.accountId === req.account.id &&
+      item.key === key &&
+      item.method === req.method &&
+      item.path === req.path,
+  );
+  if (!record) return false;
+  res.setHeader("Idempotency-Replayed", "true");
+  res.status(record.status).json(record.body);
+  return true;
+}
+function rememberIdempotentResponse(req, status, body) {
+  const key = String(req.headers["idempotency-key"] || "").trim();
+  if (!key) return;
+  req.db.idempotencyKeys ||= [];
+  req.db.idempotencyKeys = req.db.idempotencyKeys.filter(
+    (item) =>
+      new Date(item.createdAt).getTime() > Date.now() - 24 * 60 * 60 * 1000,
+  );
+  req.db.idempotencyKeys.push({
+    accountId: req.account.id,
+    key,
+    method: req.method,
+    path: req.path,
+    status,
+    body,
+    createdAt: new Date().toISOString(),
+  });
 }
 function audit(db, account, action, entity, entityId, metadata = {}) {
   db.auditLog.unshift({
@@ -864,6 +1043,20 @@ function audit(db, account, action, entity, entityId, metadata = {}) {
     createdAt: new Date().toISOString(),
   });
   db.auditLog.splice(1000);
+}
+function notify(db, accountId, type, title, body) {
+  if (!accountId) return;
+  db.notifications ||= [];
+  db.notifications.unshift({
+    id: `ntf-${randomBytes(10).toString("hex")}`,
+    accountId,
+    type,
+    title,
+    body,
+    readAt: null,
+    createdAt: new Date().toISOString(),
+  });
+  db.notifications.splice(1000);
 }
 function loginAllowed(ip) {
   const now = Date.now();
@@ -887,7 +1080,11 @@ function recordLoginAttempt(ip, success) {
 app.get("/api/health", async (_req, res) => {
   try {
     if (pool) await pool.query("SELECT 1");
-    res.json({ ok: true, storage: pool ? "postgres" : "json" });
+    res.json({
+      ok: true,
+      storage: pool ? "postgres" : "json",
+      uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
+    });
   } catch {
     res.status(503).json({ ok: false, error: "Base de datos no disponible" });
   }
@@ -968,6 +1165,12 @@ app.post("/api/auth/login", async (req, res) => {
     user: publicUser(user),
   });
 });
+app.post("/api/auth/logout", requireAuth, async (req, res) => {
+  req.account.tokenVersion = Number(req.account.tokenVersion || 0) + 1;
+  audit(req.db, req.account, "account.logged_out", "account", req.account.id);
+  await save(req.db);
+  res.status(204).end();
+});
 const professionalInput = z.object({
   name: z.string().min(2).max(80),
   role: z.string().min(2).max(100),
@@ -976,6 +1179,24 @@ const professionalInput = z.object({
   available: z.boolean().optional(),
   tags: z.array(z.string().max(30)).max(8).optional(),
   text: z.string().max(400).optional(),
+});
+const availabilitySlotInput = z
+  .object({
+    day: z.coerce.number().int().min(0).max(6),
+    start: z.string().regex(/^\d{2}:\d{2}$/),
+    end: z.string().regex(/^\d{2}:\d{2}$/),
+  })
+  .refine(
+    (slot) => timeToMinutes(slot.start) < timeToMinutes(slot.end),
+    "El horario de fin debe ser posterior al de inicio",
+  );
+const professionalOnboardingInput = z.object({
+  role: z.string().trim().min(2).max(100),
+  price: z.coerce.number().int().positive().max(100000000),
+  tags: z.array(z.string().trim().min(2).max(30)).min(1).max(8),
+  serviceAreas: z.array(z.string().trim().min(2).max(60)).min(1).max(10),
+  text: z.string().trim().min(20).max(400),
+  availability: z.array(availabilitySlotInput).min(1).max(28),
 });
 const jobInput = z.object({
   title: z.string().min(3).max(140),
@@ -995,6 +1216,107 @@ const bookingInput = z.object({
 const withdrawalInput = z.object({
   amount: z.coerce.number().int().positive().max(100000000),
 });
+function timeToMinutes(value) {
+  const [hour, minute] = String(value).split(":").map(Number);
+  return hour * 60 + minute;
+}
+function bookingRange(time) {
+  const matches = String(time).match(/(\d{2}:\d{2}).*?(\d{2}:\d{2})/);
+  if (!matches) return null;
+  const start = timeToMinutes(matches[1]);
+  const end = timeToMinutes(matches[2]);
+  return start < end ? { start, end } : null;
+}
+function bookingOverlaps(left, right) {
+  return left.start < right.end && right.start < left.end;
+}
+function isProfessionalAvailable(professional, date, range) {
+  const slots = professional.availability || [];
+  if (!slots.length) return true;
+  const day = new Date(`${date}T12:00:00`).getDay();
+  return slots.some(
+    (slot) =>
+      slot.day === day &&
+      timeToMinutes(slot.start) <= range.start &&
+      timeToMinutes(slot.end) >= range.end,
+  );
+}
+app.post("/api/professional/onboarding", requireAuth, async (req, res) => {
+  const input = professionalOnboardingInput.safeParse(req.body);
+  if (!input.success) return fail(res, "Datos profesionales invÃ¡lidos");
+  const db = req.db;
+  const existing = professionalForAccount(db, req.account);
+  if (existing) {
+    Object.assign(existing, input.data, {
+      available: true,
+      initials: existing.initials || initialsFor(req.account.name),
+      color: existing.color || "#4f8c78",
+    });
+    await save(db);
+    return res.json({ professional: existing, user: publicUser(req.account) });
+  }
+  if (req.account.role !== "client")
+    return fail(res, "Esta cuenta no puede iniciar el onboarding", 409);
+  const professional = {
+    id: nextId(db.professionals),
+    ownerId: req.account.id,
+    name: req.profile.name,
+    initials: initialsFor(req.profile.name),
+    color: "#4f8c78",
+    rating: 0,
+    jobs: 0,
+    verified: false,
+    available: true,
+    distance: "Zona a definir",
+    ...input.data,
+    createdAt: new Date().toISOString(),
+  };
+  db.professionals.push(professional);
+  req.account.role = "professional";
+  req.account.tokenVersion = Number(req.account.tokenVersion || 0) + 1;
+  profileFor(db, req.account);
+  audit(
+    db,
+    req.account,
+    "professional.onboarded",
+    "professional",
+    professional.id,
+  );
+  await save(db);
+  res.status(201).json({
+    professional,
+    token: signToken({
+      sub: req.account.id,
+      ver: req.account.tokenVersion,
+      exp: Date.now() + 86400000,
+    }),
+    user: publicUser(req.account),
+  });
+});
+app.get("/api/professional/profile", requireAuth, async (req, res) => {
+  const professional = ownedProfessionalOrFail(req, res);
+  if (professional) res.json(professional);
+});
+app.put("/api/professional/availability", requireAuth, async (req, res) => {
+  const professional = ownedProfessionalOrFail(req, res);
+  if (!professional) return;
+  const input = z
+    .array(availabilitySlotInput)
+    .min(1)
+    .max(28)
+    .safeParse(req.body);
+  if (!input.success) return fail(res, "Disponibilidad invÃ¡lida");
+  professional.availability = input.data;
+  audit(
+    req.db,
+    req.account,
+    "professional.availability_updated",
+    "professional",
+    professional.id,
+  );
+  await save(req.db);
+  res.json({ availability: professional.availability });
+});
 app.get("/api/admin/state", requireAdmin, async (_req, res) => {
   const db = await database();
   res.json({
@@ -1003,6 +1325,7 @@ app.get("/api/admin/state", requireAdmin, async (_req, res) => {
     jobs: db.jobs,
     users: db.authUsers.map(publicUser),
     reviews: db.reviews,
+    verifications: db.verifications,
     bookings: db.bookings,
     transactions: db.transactions,
   });
@@ -1197,6 +1520,7 @@ app.patch("/api/admin/users/:id", requireAdmin, async (req, res) => {
     .object({
       role: z.enum(["client", "professional", "admin"]).optional(),
       verified: z.boolean().optional(),
+      status: z.enum(["active", "blocked"]).optional(),
     })
     .safeParse(req.body);
   if (!input.success) return fail(res, "Cambio de usuario inválido");
@@ -1204,11 +1528,13 @@ app.patch("/api/admin/users/:id", requireAdmin, async (req, res) => {
   const user = db.authUsers.find((item) => item.id === req.params.id);
   if (!user) return fail(res, "Usuario no encontrado", 404);
   const roleChanged = input.data.role && input.data.role !== user.role;
+  const statusChanged = input.data.status && input.data.status !== user.status;
   Object.assign(user, input.data);
-  if (roleChanged) user.tokenVersion = Number(user.tokenVersion || 0) + 1;
+  if (roleChanged || statusChanged)
+    user.tokenVersion = Number(user.tokenVersion || 0) + 1;
   audit(db, req.admin, "user.updated", "account", user.id, {
     ...input.data,
-    tokenVersionRotated: Boolean(roleChanged),
+    tokenVersionRotated: Boolean(roleChanged || statusChanged),
   });
   await save(db);
   res.json(publicUser(user));
@@ -1220,6 +1546,66 @@ app.get("/api/admin/audit", requireAdmin, async (_req, res) => {
 app.get("/api/admin/metrics", requireAdmin, async (_req, res) => {
   const db = await database();
   res.json(growthMetrics(db));
+});
+app.get("/api/metrics", requireAdmin, (_req, res) => {
+  res.json({
+    uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
+    requests: requestMetrics,
+    storage: pool ? "postgres" : "json",
+  });
+});
+app.get("/api/admin/verifications", requireAdmin, async (req, res) => {
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+  const status = String(req.query.status || "");
+  const items = (req.db?.verifications || (await database()).verifications)
+    .filter((item) => !status || item.status === status)
+    .sort(
+      (left, right) => new Date(right.createdAt) - new Date(left.createdAt),
+    );
+  res.json({
+    items: items.slice((page - 1) * limit, page * limit),
+    page,
+    limit,
+    total: items.length,
+  });
+});
+app.patch("/api/admin/verifications/:id", requireAdmin, async (req, res) => {
+  const input = z
+    .object({ status: z.enum(["approved", "rejected"]) })
+    .safeParse(req.body);
+  if (!input.success)
+    return fail(res, "ResoluciÃ³n de verificaciÃ³n invÃ¡lida");
+  const db = await database();
+  const verification = db.verifications.find(
+    (item) => item.id === Number(req.params.id),
+  );
+  if (!verification) return fail(res, "Solicitud no encontrada", 404);
+  if (verification.status !== "pending")
+    return fail(res, "La solicitud ya fue resuelta", 409);
+  verification.status = input.data.status;
+  verification.reviewedAt = new Date().toISOString();
+  verification.reviewedBy = req.admin.id;
+  const account = db.authUsers.find((user) => user.id === verification.userId);
+  if (input.data.status === "approved" && account) {
+    if (verification.kind === "identity") account.verified = true;
+    if (verification.kind === "professional") {
+      const professional = professionalForAccount(db, account);
+      if (professional) professional.verified = true;
+    }
+  }
+  audit(
+    db,
+    req.admin,
+    "verification.reviewed",
+    "verification",
+    verification.id,
+    {
+      status: verification.status,
+    },
+  );
+  await save(db);
+  res.json(verification);
 });
 app.get("/api/professionals", async (req, res) => {
   const q = String(req.query.q || "").toLocaleLowerCase("es-PY");
@@ -1305,6 +1691,26 @@ app.get("/api/referrals", requireAuth, async (req, res) => {
     status: req.profile.referralRewardStatus || "none",
     qualifiedCount: Number(req.profile.referralQualifiedCount || 0),
   });
+});
+app.get("/api/notifications", requireAuth, async (req, res) => {
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
+  const items = (req.db.notifications || [])
+    .filter((item) => item.accountId === req.account.id)
+    .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
+    .slice(0, limit);
+  res.json({
+    items,
+    unread: items.filter((item) => !item.readAt).length,
+  });
+});
+app.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
+  const notification = (req.db.notifications || []).find(
+    (item) => item.id === req.params.id && item.accountId === req.account.id,
+  );
+  if (!notification) return fail(res, "NotificaciÃ³n no encontrada", 404);
+  notification.readAt ||= new Date().toISOString();
+  await save(req.db);
+  res.json(notification);
 });
 app.post("/api/events", requireAuth, async (req, res) => {
   const input = z
@@ -1536,6 +1942,7 @@ app.patch(
   },
 );
 app.post("/api/bookings", requireAuth, async (req, res) => {
+  if (replayIdempotentRequest(req, res)) return;
   const input = bookingInput.safeParse(req.body);
   if (!input.success) return fail(res, "Datos de reserva inválidos");
   if (req.account.role !== "client")
@@ -1546,19 +1953,26 @@ app.post("/api/bookings", requireAuth, async (req, res) => {
   );
   if (!professional || !professional.available)
     return fail(res, "Profesional no disponible", 404);
+  const requestedRange = bookingRange(input.data.time);
+  if (!requestedRange) return fail(res, "El horario de reserva no es vÃ¡lido");
+  if (!isProfessionalAvailable(professional, input.data.date, requestedRange))
+    return fail(res, "El profesional no atiende en esa franja", 409);
   if (
     new Date(`${input.data.date}T00:00:00`).getTime() <
     new Date().setHours(0, 0, 0, 0)
   )
     return fail(res, "Elegí una fecha futura");
   if (
-    db.bookings.some(
-      (item) =>
+    db.bookings.some((item) => {
+      const existingRange = bookingRange(item.time);
+      return (
         item.professionalId === professional.id &&
         item.date === input.data.date &&
-        item.time === input.data.time &&
-        !["Cancelada", "Finalizado"].includes(item.status),
-    )
+        existingRange &&
+        bookingOverlaps(existingRange, requestedRange) &&
+        !["Cancelada", "Completada"].includes(item.status)
+      );
+    })
   )
     return fail(res, "Ese horario ya no está disponible", 409);
   const amount = input.data.amount || professional.price * 2;
@@ -1576,11 +1990,19 @@ app.post("/api/bookings", requireAuth, async (req, res) => {
     timeline: [{ status: "Esperando respuesta", at: new Date().toISOString() }],
   };
   db.bookings.push(booking);
+  notify(
+    db,
+    professional.ownerId,
+    "booking.created",
+    "Nueva solicitud de reserva",
+    `${req.profile.name} solicitó ${booking.date} · ${booking.time}.`,
+  );
   audit(db, req.account, "booking.created", "booking", booking.id);
   trackGrowthEvent(db, req.account, "booking.created", {
     category: professional.role,
     zone: booking.place,
   });
+  rememberIdempotentResponse(req, 201, booking);
   await save(db);
   res.status(201).json(booking);
 });
@@ -1617,6 +2039,7 @@ app.patch("/api/bookings/:bookingId/status", requireAuth, async (req, res) => {
   res.json(booking);
 });
 app.post("/api/payments/intents", requireAuth, async (req, res) => {
+  if (replayIdempotentRequest(req, res)) return;
   const bookingId = Number(req.body.bookingId);
   const db = req.db;
   const booking = db.bookings.find(
@@ -1646,10 +2069,10 @@ app.post("/api/payments/intents", requireAuth, async (req, res) => {
       amount: -booking.amount,
       status: "Autorizado",
     });
+    const result = { demo: true, paymentStatus: booking.paymentStatus };
+    rememberIdempotentResponse(req, 201, result);
     await save(db);
-    return res
-      .status(201)
-      .json({ demo: true, paymentStatus: booking.paymentStatus });
+    return res.status(201).json(result);
   }
   if (!stripe) return fail(res, "Configurá Stripe para usar pagos reales", 503);
   const intent = await stripe.paymentIntents.create({
@@ -1661,12 +2084,16 @@ app.post("/api/payments/intents", requireAuth, async (req, res) => {
   });
   booking.paymentIntentId = intent.id;
   booking.paymentStatus = intent.status;
+  const result = {
+    clientSecret: intent.client_secret,
+    paymentIntentId: intent.id,
+  };
+  rememberIdempotentResponse(req, 201, result);
   await save(db);
-  res
-    .status(201)
-    .json({ clientSecret: intent.client_secret, paymentIntentId: intent.id });
+  res.status(201).json(result);
 });
 app.post("/api/payments/:bookingId/release", requireAuth, async (req, res) => {
+  if (replayIdempotentRequest(req, res)) return;
   const db = req.db;
   const booking = db.bookings.find(
     (item) =>
@@ -1725,8 +2152,10 @@ app.post("/api/payments/:bookingId/release", requireAuth, async (req, res) => {
       amount: booking.amount,
       professionalId: booking.professionalId,
     });
+    const result = { demo: true, status: booking.paymentStatus };
+    rememberIdempotentResponse(req, 200, result);
     await save(db);
-    return res.json({ demo: true, status: booking.paymentStatus });
+    return res.json(result);
   }
   if (!booking.paymentIntentId)
     return fail(res, "No hay un pago autorizado para esta reserva", 404);
@@ -1736,23 +2165,113 @@ app.post("/api/payments/:bookingId/release", requireAuth, async (req, res) => {
   const intent = await stripe.paymentIntents.capture(booking.paymentIntentId);
   booking.paymentStatus = intent.status;
   booking.status = "Completada";
+  const result = { status: intent.status };
+  rememberIdempotentResponse(req, 200, result);
   await save(db);
-  res.json({ status: intent.status });
+  res.json(result);
+});
+function conversationsFor(db, account) {
+  const professional =
+    account.role === "professional"
+      ? professionalForAccount(db, account)
+      : null;
+  const messages = (db.messages || []).filter(
+    (message) =>
+      message.clientId === account.id ||
+      (professional && message.professionalId === professional.id),
+  );
+  const grouped = new Map();
+  for (const message of messages) {
+    const key = `${message.professionalId}:${message.clientId}`;
+    const current = grouped.get(key) || {
+      professionalId: message.professionalId,
+      clientId: message.clientId,
+      messages: [],
+    };
+    current.messages.push(message);
+    grouped.set(key, current);
+  }
+  return [...grouped.values()]
+    .map((conversation) => {
+      const items = conversation.messages.sort(
+        (left, right) => new Date(left.createdAt) - new Date(right.createdAt),
+      );
+      const lastMessage = items.at(-1);
+      const professionalProfile = db.professionals.find(
+        (item) => item.id === conversation.professionalId,
+      );
+      const clientProfile = db.userProfiles[conversation.clientId];
+      const isProfessional = Boolean(professional);
+      return {
+        professionalId: conversation.professionalId,
+        clientId: conversation.clientId,
+        partner: isProfessional
+          ? { name: clientProfile?.name || "Cliente" }
+          : professionalProfile
+            ? {
+                id: professionalProfile.id,
+                name: professionalProfile.name,
+                initials: professionalProfile.initials,
+                color: professionalProfile.color,
+                verified: professionalProfile.verified,
+              }
+            : { name: "Profesional" },
+        lastMessage,
+        unreadCount: items.filter(
+          (message) =>
+            !message.readAt &&
+            ((isProfessional && message.author === "client") ||
+              (!isProfessional && message.author === "professional")),
+        ).length,
+      };
+    })
+    .sort(
+      (left, right) =>
+        new Date(right.lastMessage.createdAt) -
+        new Date(left.lastMessage.createdAt),
+    );
+}
+app.get("/api/conversations", requireAuth, async (req, res) => {
+  if (
+    req.account.role === "professional" &&
+    !professionalForAccount(req.db, req.account)
+  )
+    return fail(
+      res,
+      "Tu cuenta profesional aÃºn no estÃ¡ vinculada a un perfil",
+      403,
+    );
+  res.json(conversationsFor(req.db, req.account));
 });
 app.get("/api/messages/:professionalId", requireAuth, async (req, res) => {
   const db = req.db;
   const professionalId = Number(req.params.professionalId);
   if (!db.professionals.some((pro) => pro.id === professionalId))
     return fail(res, "Profesional no encontrado", 404);
-  res.json(
-    db.messages.filter(
+  const professional =
+    req.account.role === "professional"
+      ? ownedProfessionalOrFail(req, res)
+      : null;
+  if (req.account.role === "professional" && !professional) return;
+  if (professional && professional.id !== professionalId)
+    return fail(res, "No tenÃ©s acceso a esta conversaciÃ³n", 403);
+  const clientId = professional
+    ? String(req.query.clientId || "")
+    : req.account.id;
+  if (!clientId) return fail(res, "IndicÃ¡ el cliente de la conversaciÃ³n");
+  const messages = db.messages
+    .filter(
       (message) =>
         message.professionalId === professionalId &&
-        message.clientId === req.account.id,
-    ),
-  );
+        message.clientId === clientId,
+    )
+    .sort(
+      (left, right) => new Date(left.createdAt) - new Date(right.createdAt),
+    );
+  res.json(messages);
 });
 app.post("/api/messages", requireAuth, async (req, res) => {
+  if (replayIdempotentRequest(req, res)) return;
   const input = z
     .object({
       professionalId: z.coerce.number().int().positive(),
@@ -1775,17 +2294,16 @@ app.post("/api/messages", requireAuth, async (req, res) => {
     professionalId: input.data.professionalId,
     text: input.data.text,
     author: "client",
-    createdAt: new Intl.DateTimeFormat("es-PY", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(new Date()),
+    createdAt: new Date().toISOString(),
+    readAt: null,
   };
   db.messages.push(message);
+  rememberIdempotentResponse(req, 201, message);
   await save(db);
   res.status(201).json(message);
 });
 app.post("/api/professional/messages", requireAuth, async (req, res) => {
+  if (replayIdempotentRequest(req, res)) return;
   const professional = ownedProfessionalOrFail(req, res);
   if (!professional) return;
   const input = z
@@ -1814,15 +2332,35 @@ app.post("/api/professional/messages", requireAuth, async (req, res) => {
     text: input.data.text,
     author: "professional",
     createdAt: new Date().toISOString(),
+    readAt: null,
   };
   req.db.messages.push(message);
   audit(req.db, req.account, "message.sent", "message", message.id, {
     actor: "professional",
   });
+  rememberIdempotentResponse(req, 201, message);
   await save(req.db);
   res.status(201).json(message);
 });
+app.patch("/api/messages/:id/read", requireAuth, async (req, res) => {
+  const message = req.db.messages.find(
+    (item) => item.id === Number(req.params.id),
+  );
+  if (!message) return fail(res, "Mensaje no encontrado", 404);
+  const professional =
+    req.account.role === "professional"
+      ? professionalForAccount(req.db, req.account)
+      : null;
+  const allowed = professional
+    ? message.professionalId === professional.id && message.author === "client"
+    : message.clientId === req.account.id && message.author === "professional";
+  if (!allowed) return fail(res, "No tenÃ©s acceso a este mensaje", 403);
+  if (!message.readAt) message.readAt = new Date().toISOString();
+  await save(req.db);
+  res.json({ id: message.id, readAt: message.readAt });
+});
 app.post("/api/withdrawals", requireAuth, async (req, res) => {
+  if (replayIdempotentRequest(req, res)) return;
   const input = withdrawalInput.safeParse(req.body);
   if (!input.success) return fail(res, "Monto de retiro inválido");
   if (isProduction)
@@ -1850,15 +2388,29 @@ app.post("/api/withdrawals", requireAuth, async (req, res) => {
     "withdrawal",
     nextId(db.transactions),
   );
+  const result = { balance: req.profile.balance };
+  rememberIdempotentResponse(req, 201, result);
   await save(db);
-  res.status(201).json({ balance: req.profile.balance });
+  res.status(201).json(result);
 });
 app.get("/api/professionals/:professionalId/reviews", async (req, res) => {
   const db = await database();
   const id = Number(req.params.professionalId);
   if (!db.professionals.some((item) => item.id === id))
     return fail(res, "Profesional no encontrado", 404);
-  res.json(db.reviews.filter((review) => review.professionalId === id));
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+  const reviews = db.reviews
+    .filter((review) => review.professionalId === id)
+    .sort(
+      (left, right) => new Date(right.createdAt) - new Date(left.createdAt),
+    );
+  res.json({
+    items: reviews.slice((page - 1) * limit, page * limit),
+    page,
+    limit,
+    total: reviews.length,
+  });
 });
 app.post(
   "/api/professionals/:professionalId/reviews",
@@ -1915,11 +2467,29 @@ app.post(
     res.status(201).json(review);
   },
 );
+app.get("/api/verifications", requireAuth, async (req, res) => {
+  res.json(
+    req.db.verifications
+      .filter((item) => item.userId === req.account.id)
+      .sort(
+        (left, right) => new Date(right.createdAt) - new Date(left.createdAt),
+      ),
+  );
+});
 app.post("/api/verifications", requireAuth, async (req, res) => {
   const kind = String(req.body.kind || "").trim();
   if (!["identity", "professional", "address"].includes(kind))
     return fail(res, "Tipo de verificación no válido");
   const db = req.db;
+  if (
+    db.verifications.some(
+      (item) =>
+        item.userId === req.account.id &&
+        item.kind === kind &&
+        item.status === "pending",
+    )
+  )
+    return fail(res, "Ya tenÃ©s una solicitud de este tipo en revisiÃ³n", 409);
   const request = {
     id: nextId(db.verifications),
     userId: req.account.id,

@@ -6,6 +6,8 @@
 - Driver JSON para pruebas locales; PostgreSQL opcional por `DATABASE_URL`.
 - CI ejecuta formato, lint, auditoría de dependencias, pruebas y build.
 - Dockerfile multi-etapa y `compose.yaml` para PostgreSQL local.
+- Onboarding profesional, agenda por franjas y rechazo de reservas solapadas.
+- Verificaciones propias y resolución administrativa disponibles por API.
 
 ## No habilitar públicamente todavía
 
