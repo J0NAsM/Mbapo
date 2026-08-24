@@ -477,5 +477,213 @@ export function createBookingsRepository(pool) {
         client.release();
       }
     },
+    async transitionForProfessional(input) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const replay = await replayIdempotency(client, input.idempotency);
+        if (replay) {
+          await client.query("COMMIT");
+          return replay;
+        }
+        const bookingResult = await client.query(
+          "SELECT payload FROM bookings WHERE id = $1 AND professional_id = $2 FOR UPDATE",
+          [input.bookingId, input.professionalId],
+        );
+        const booking = bookingResult.rows[0]?.payload;
+        if (!booking) {
+          await client.query("COMMIT");
+          return { error: "missing" };
+        }
+        const allowedTransitions = {
+          "Esperando respuesta": ["Profesional confirmado", "Cancelada"],
+          "Profesional confirmado": ["Trabajo en curso", "Cancelada"],
+          "Trabajo en curso": ["Esperando tu confirmación"],
+        };
+        if (
+          !(allowedTransitions[booking.status] || []).includes(input.status)
+        ) {
+          await client.query("COMMIT");
+          return { error: "transition" };
+        }
+        if (
+          ["Trabajo en curso", "Esperando tu confirmación"].includes(
+            input.status,
+          ) &&
+          !["authorized", "demo_authorized"].includes(booking.paymentStatus)
+        ) {
+          await client.query("COMMIT");
+          return { error: "payment_required" };
+        }
+        if (
+          input.status === "Cancelada" &&
+          booking.paymentStatus !== "unpaid"
+        ) {
+          await client.query("COMMIT");
+          return { error: "authorized_payment" };
+        }
+        const nextBooking = {
+          ...booking,
+          status: input.status,
+          timeline: [
+            ...(booking.timeline || []),
+            { status: input.status, at: input.createdAt, by: input.accountId },
+          ],
+        };
+        await client.query(
+          "UPDATE bookings SET payload = $2::jsonb, updated_at = now() WHERE id = $1",
+          [booking.id, JSON.stringify(nextBooking)],
+        );
+        await appendAudit(client, {
+          actorId: input.accountId,
+          action: "booking.status_changed",
+          entity: "booking",
+          entityId: String(booking.id),
+          metadata: { status: input.status, actor: "professional" },
+          createdAt: input.createdAt,
+        });
+        await insertNotification(client, {
+          ...input.notification,
+          accountId: booking.clientId,
+        });
+        await rememberIdempotency(client, input.idempotency, 200, nextBooking);
+        await client.query("COMMIT");
+        return { booking: nextBooking };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+    async transitionForClient(input) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const replay = await replayIdempotency(client, input.idempotency);
+        if (replay) {
+          await client.query("COMMIT");
+          return replay;
+        }
+        const bookingResult = await client.query(
+          "SELECT payload FROM bookings WHERE id = $1 AND client_account_id = $2 FOR UPDATE",
+          [input.bookingId, input.accountId],
+        );
+        const booking = bookingResult.rows[0]?.payload;
+        if (!booking) {
+          await client.query("COMMIT");
+          return { error: "missing" };
+        }
+        const allowedTransitions = {
+          "Esperando respuesta": ["Cancelada"],
+          "Profesional confirmado": ["Cancelada"],
+          "Esperando tu confirmación": ["Finalizado", "Disputa abierta"],
+        };
+        if (
+          !(allowedTransitions[booking.status] || []).includes(input.status)
+        ) {
+          await client.query("COMMIT");
+          return { error: "transition" };
+        }
+        if (
+          input.status === "Finalizado" &&
+          !["authorized", "demo_authorized"].includes(booking.paymentStatus)
+        ) {
+          await client.query("COMMIT");
+          return { error: "payment_required" };
+        }
+        const professionalResult = await client.query(
+          "SELECT payload FROM professionals WHERE id = $1 FOR SHARE",
+          [booking.professionalId],
+        );
+        const professional = professionalResult.rows[0]?.payload;
+        const nextBooking = {
+          ...booking,
+          status: input.status,
+          timeline: [
+            ...(booking.timeline || []),
+            { status: input.status, at: input.createdAt },
+          ],
+        };
+        await client.query(
+          "UPDATE bookings SET payload = $2::jsonb, updated_at = now() WHERE id = $1",
+          [booking.id, JSON.stringify(nextBooking)],
+        );
+        await appendAudit(client, {
+          actorId: input.accountId,
+          action: "booking.status_changed",
+          entity: "booking",
+          entityId: String(booking.id),
+          metadata: { status: input.status },
+          createdAt: input.createdAt,
+        });
+        if (input.status === "Finalizado") {
+          const profileResult = await client.query(
+            "SELECT payload FROM user_profiles WHERE account_id = $1 FOR UPDATE",
+            [input.accountId],
+          );
+          const profile = profileResult.rows[0]?.payload;
+          if (
+            profile?.referredBy &&
+            profile.referralRewardStatus !== "qualified"
+          ) {
+            const referrerResult = await client.query(
+              "SELECT payload FROM user_profiles WHERE account_id = $1 FOR UPDATE",
+              [profile.referredBy],
+            );
+            const referrer = referrerResult.rows[0]?.payload;
+            if (referrer) {
+              const qualifiedProfile = {
+                ...profile,
+                referralRewardStatus: "qualified",
+                referralQualifiedAt: input.createdAt,
+              };
+              const qualifiedReferrer = {
+                ...referrer,
+                referralQualifiedCount:
+                  Number(referrer.referralQualifiedCount || 0) + 1,
+              };
+              await client.query(
+                "UPDATE user_profiles SET payload = $2::jsonb, updated_at = now() WHERE account_id = $1",
+                [input.accountId, JSON.stringify(qualifiedProfile)],
+              );
+              await client.query(
+                "UPDATE user_profiles SET payload = $2::jsonb, updated_at = now() WHERE account_id = $1",
+                [profile.referredBy, JSON.stringify(qualifiedReferrer)],
+              );
+              await client.query(
+                "INSERT INTO growth_events (id, payload, actor_account_id, occurred_at) VALUES ($1,$2::jsonb,$3,$4)",
+                [
+                  input.growthEventId,
+                  JSON.stringify({
+                    id: input.growthEventId,
+                    actorId: input.accountId,
+                    name: "referral.qualified",
+                    metadata: { referrerId: referrer.id },
+                    occurredAt: input.createdAt,
+                  }),
+                  input.accountId,
+                  input.createdAt,
+                ],
+              );
+            }
+          }
+        }
+        await insertNotification(
+          client,
+          professional?.ownerId
+            ? { ...input.notification, accountId: professional.ownerId }
+            : null,
+        );
+        await rememberIdempotency(client, input.idempotency, 200, nextBooking);
+        await client.query("COMMIT");
+        return { booking: nextBooking };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
   };
 }

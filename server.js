@@ -2027,9 +2027,48 @@ app.patch(
   "/api/professional/bookings/:bookingId/status",
   requireAuth,
   async (req, res) => {
+    const idempotency = bookingsRepository
+      ? persistedIdempotency(req, res)
+      : null;
+    if (bookingsRepository && idempotency === false) return;
     const professional = ownedProfessionalOrFail(req, res);
     if (!professional) return;
     const status = String(req.body.status || "");
+    if (bookingsRepository) {
+      const result = await bookingsRepository.transitionForProfessional({
+        bookingId: Number(req.params.bookingId),
+        professionalId: professional.id,
+        accountId: req.account.id,
+        status,
+        createdAt: new Date().toISOString(),
+        idempotency,
+        notification: {
+          id: `ntf-${randomBytes(10).toString("hex")}`,
+          type: "booking.status_changed",
+          title: "Actualización de tu reserva",
+          body: `${professional.name} actualizó el estado de tu reserva.`,
+          readAt: null,
+          createdAt: new Date().toISOString(),
+        },
+      });
+      if (result.replayed) {
+        res.setHeader("Idempotency-Replayed", "true");
+        return res.status(result.status).json(result.body);
+      }
+      if (result.error === "missing")
+        return fail(res, "Reserva no encontrada", 404);
+      if (result.error === "transition")
+        return fail(res, "No podés realizar ese cambio de estado", 409);
+      if (result.error === "payment_required")
+        return fail(res, "El pago debe estar autorizado antes de iniciar", 409);
+      if (result.error === "authorized_payment")
+        return fail(
+          res,
+          "No podés cancelar una reserva con pago autorizado desde este flujo",
+          409,
+        );
+      return res.json(result.booking);
+    }
     const booking = req.db.bookings.find(
       (item) =>
         item.id === Number(req.params.bookingId) &&
@@ -2178,6 +2217,39 @@ app.post("/api/bookings", requireAuth, async (req, res) => {
 });
 app.patch("/api/bookings/:bookingId/status", requireAuth, async (req, res) => {
   const status = String(req.body.status || "");
+  const idempotency = bookingsRepository
+    ? persistedIdempotency(req, res)
+    : null;
+  if (bookingsRepository && idempotency === false) return;
+  if (bookingsRepository) {
+    const result = await bookingsRepository.transitionForClient({
+      bookingId: Number(req.params.bookingId),
+      accountId: req.account.id,
+      status,
+      createdAt: new Date().toISOString(),
+      growthEventId: `evt-${randomBytes(10).toString("hex")}`,
+      idempotency,
+      notification: {
+        id: `ntf-${randomBytes(10).toString("hex")}`,
+        type: "booking.status_changed",
+        title: "Actualización de reserva",
+        body: `${req.profile.name} actualizó el estado de la reserva.`,
+        readAt: null,
+        createdAt: new Date().toISOString(),
+      },
+    });
+    if (result.replayed) {
+      res.setHeader("Idempotency-Replayed", "true");
+      return res.status(result.status).json(result.body);
+    }
+    if (result.error === "missing")
+      return fail(res, "Reserva no encontrada", 404);
+    if (result.error === "transition")
+      return fail(res, "No podés realizar ese cambio de estado", 409);
+    if (result.error === "payment_required")
+      return fail(res, "El pago debe estar autorizado antes de finalizar", 409);
+    return res.json(result.booking);
+  }
   const db = req.db;
   const booking = db.bookings.find(
     (item) =>

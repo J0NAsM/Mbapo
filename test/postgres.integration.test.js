@@ -214,15 +214,32 @@ test(
         Authorization: `Bearer ${professionalSession.token}`,
         "Content-Type": "application/json",
       };
+      const confirmationHeaders = {
+        ...professionalHeaders,
+        "Idempotency-Key": "postgres-booking-transition-idempotency-001",
+      };
       const confirmation = await fetch(
         `${url}/api/professional/bookings/${booking.id}/status`,
         {
           method: "PATCH",
-          headers: professionalHeaders,
+          headers: confirmationHeaders,
           body: JSON.stringify({ status: "Profesional confirmado" }),
         },
       );
       assert.equal(confirmation.status, 200);
+      const confirmationReplay = await fetch(
+        `${url}/api/professional/bookings/${booking.id}/status`,
+        {
+          method: "PATCH",
+          headers: confirmationHeaders,
+          body: JSON.stringify({ status: "Profesional confirmado" }),
+        },
+      );
+      assert.equal(confirmationReplay.status, 200);
+      assert.equal(
+        confirmationReplay.headers.get("idempotency-replayed"),
+        "true",
+      );
 
       const paymentHeaders = {
         ...headers,
