@@ -76,3 +76,5 @@ La creación de reseñas en PostgreSQL valida y bloquea la reserva finalizada, e
 `src/components/Wallet.tsx` extrae la billetera de `main.jsx` con contratos tipados para saldo, escrow y movimientos, preservando el flujo de retiro demo.
 
 `server/domain/availability.js` concentra el cálculo de franjas, disponibilidad semanal y solapamientos de reservas. Sus pruebas unitarias cubren límites de horario y días sin disponibilidad; la API conserva estas mismas reglas.
+
+La creación de reservas en PostgreSQL se ejecuta ahora por transacción: verifica profesional, disponibilidad y solapamientos con bloqueo de tabla; guarda reserva, aviso, auditoría, analítica e idempotencia sin `savePostgres`.

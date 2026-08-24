@@ -2081,11 +2081,42 @@ app.patch(
   },
 );
 app.post("/api/bookings", requireAuth, async (req, res) => {
-  if (replayIdempotentRequest(req, res)) return;
+  const idempotency = bookingsRepository
+    ? persistedIdempotency(req, res)
+    : null;
+  if (bookingsRepository && idempotency === false) return;
+  if (!bookingsRepository && replayIdempotentRequest(req, res)) return;
   const input = bookingInput.safeParse(req.body);
   if (!input.success) return fail(res, "Datos de reserva inválidos");
   if (req.account.role !== "client")
     return fail(res, "Solo una cuenta cliente puede crear reservas", 403);
+  if (
+    new Date(`${input.data.date}T00:00:00`).getTime() <
+    new Date().setHours(0, 0, 0, 0)
+  )
+    return fail(res, "Elegí una fecha futura");
+  if (bookingsRepository) {
+    const result = await bookingsRepository.createWithEffects({
+      ...input.data,
+      accountId: req.account.id,
+      clientName: req.profile.name,
+      createdAt: new Date().toISOString(),
+      notificationId: `ntf-${randomBytes(10).toString("hex")}`,
+      growthEventId: `evt-${randomBytes(10).toString("hex")}`,
+      idempotency,
+    });
+    if (result.replayed) {
+      res.setHeader("Idempotency-Replayed", "true");
+      return res.status(result.status).json(result.body);
+    }
+    if (result.error === "professional")
+      return fail(res, "Profesional no disponible", 404);
+    if (result.error === "availability")
+      return fail(res, "El profesional no atiende en esa franja", 409);
+    if (result.error === "overlap")
+      return fail(res, "Ese horario ya no está disponible", 409);
+    return res.status(201).json(result.booking);
+  }
   const db = req.db;
   const professional = db.professionals.find(
     (p) => p.id === input.data.professionalId,
