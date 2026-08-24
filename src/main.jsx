@@ -7,6 +7,7 @@ import { BookingAgenda } from "./components/BookingAgenda";
 import { Avatar, Stars } from "./components/Identity";
 import { Wallet } from "./components/Wallet";
 import { ProfessionalHome } from "./components/ProfessionalHome";
+import { VerificationRequests } from "./components/VerificationRequests";
 import "./styles.css";
 
 if ("serviceWorker" in navigator)
@@ -1186,56 +1187,6 @@ function Jobs({ setModal, announce, jobs: jobList }) {
         </aside>
       </div>
     </div>
-  );
-}
-
-function VerificationRequests() {
-  const [requests, setRequests] = useState([]);
-  const [error, setError] = useState("");
-  const load = async () => {
-    try {
-      const response = await apiFetch("/api/verifications");
-      const data = await response.json();
-      if (!response.ok) throw Error(data.error);
-      setRequests(data);
-    } catch (requestError) {
-      setError(requestError.message || "No pudimos cargar tus verificaciones.");
-    }
-  };
-  useEffect(() => {
-    load();
-  }, []);
-  const request = async (kind) => {
-    try {
-      const response = await apiFetch("/api/verifications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw Error(data.error);
-      await load();
-    } catch (requestError) {
-      setError(requestError.message || "No pudimos enviar la solicitud.");
-    }
-  };
-  return (
-    <article>
-      <span>✓</span>
-      <div>
-        <h3>Verificaciones</h3>
-        <p>
-          {requests.length
-            ? requests.map((item) => `${item.kind}: ${item.status}`).join(" · ")
-            : "Solicitá una revisión de identidad o perfil profesional."}
-        </p>
-        {error && <p className="form-error">{error}</p>}
-      </div>
-      <div className="role-toggle">
-        <button onClick={() => request("identity")}>Identidad</button>
-        <button onClick={() => request("professional")}>Profesional</button>
-      </div>
-    </article>
   );
 }
 
