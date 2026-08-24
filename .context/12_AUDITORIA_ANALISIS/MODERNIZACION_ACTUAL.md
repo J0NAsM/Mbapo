@@ -46,3 +46,5 @@ La vista de trabajos tambiÃ©n consume `GET /api/jobs` con categorÃ­a, orden 
 `src/components/NotificationCenter.tsx` es el primer componente visual migrado a TypeScript estricto. `tsconfig.json` habilita `react-jsx`; los contratos de avisos y respuestas de API quedan tipados dentro del componente.
 
 `server/persistence/catalog.js` ejecuta filtros, orden y paginación de profesionales y trabajos sobre PostgreSQL. La integración SQL cubre ambos catálogos además de los flujos autenticados ya existentes.
+
+`src/components/Messages.tsx` migra mensajería a TypeScript con contratos de hilo, interlocutor, mensaje y lectura. `App` ya no conserva estado de conversación ni envío de demostración; la pantalla consulta directamente las conversaciones reales.

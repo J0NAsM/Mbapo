@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { apiFetch, sessionTokenKey } from "./lib/api";
-import { formatMessageTime } from "./lib/datetime";
 import { NotificationCenter } from "./components/NotificationCenter";
+import { Messages } from "./components/Messages";
 import "./styles.css";
 
 if ("serviceWorker" in navigator)
@@ -213,19 +213,6 @@ function App() {
   const [saved, setSaved] = useState([]);
   const [notice, setNotice] = useState("");
   const [modal, setModal] = useState(null);
-  const [conversation, setConversation] = useState([
-    {
-      text: "Hola, Rocío. ¿Tenés disponibilidad este jueves?",
-      author: "client",
-      createdAt: "10:40",
-    },
-    {
-      text: "¡Hola! Sí, puedo pasar a partir de las 14:00.",
-      author: "professional",
-      createdAt: "10:42",
-    },
-  ]);
-  const [message, setMessage] = useState("");
   const [location, setLocation] = useState(() =>
     localStorage.getItem("mbapo-location-consent")
       ? "Ubicación aproximada activada"
@@ -344,9 +331,6 @@ function App() {
       const data = await response.json();
       setDashboard(data);
       setSaved(data.user?.favorites || []);
-      setConversation(
-        data.messages?.filter((item) => item.professionalId === 1) || [],
-      );
       if (session?.user?.role === "professional") {
         const professionalResponse = await apiFetch(
           "/api/professional/dashboard",
@@ -489,38 +473,6 @@ function App() {
       );
     } catch (error) {
       announce(error.message || "No pudimos guardar la búsqueda.");
-    }
-  };
-  const send = async () => {
-    if (!message.trim()) return;
-    const pending = {
-      id: Date.now(),
-      text: message.trim(),
-      author: "client",
-      createdAt: "Ahora",
-    };
-    const payload = { professionalId: 1, text: pending.text };
-    const idempotencyKey = `message-${crypto.randomUUID()}`;
-    setConversation((v) => [...v, pending]);
-    setMessage("");
-    try {
-      const response = await apiFetch("/api/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": idempotencyKey,
-        },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) throw Error();
-      const sent = await response.json();
-      setConversation((v) =>
-        v.map((item) => (item.id === pending.id ? sent : item)),
-      );
-      announce("Mensaje enviado a Rocío.");
-    } catch {
-      enqueueRequest("/api/messages", "POST", payload, idempotencyKey);
-      announce("Mensaje guardado y se enviará al recuperar conexión.");
     }
   };
   const requestLocation = () => {
@@ -691,15 +643,7 @@ function App() {
             announce={announce}
           />
         )}
-        {view === "messages" && (
-          <Messages
-            role={role}
-            conversation={conversation}
-            message={message}
-            setMessage={setMessage}
-            send={send}
-          />
-        )}
+        {view === "messages" && <Messages role={role} />}
         {view === "wallet" && (
           <Wallet
             setModal={setModal}
@@ -1509,157 +1453,6 @@ function Calendar({ bookings, role, reload, announce, setModal }) {
           </div>
           <button onClick={() => setModal("book")}>Confirmar →</button>
         </div>
-      </section>
-    </div>
-  );
-}
-
-function Messages({ role }) {
-  const [conversations, setConversations] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [draft, setDraft] = useState("");
-  const [error, setError] = useState("");
-  const loadConversations = useCallback(async () => {
-    try {
-      const response = await apiFetch("/api/conversations");
-      const data = await response.json();
-      if (!response.ok) throw Error(data.error);
-      setConversations(data);
-      setSelected((current) => current || data[0] || null);
-    } catch (requestError) {
-      setError(requestError.message || "No pudimos cargar las conversaciones.");
-    }
-  }, []);
-  const loadMessages = useCallback(async () => {
-    if (!selected) return setMessages([]);
-    try {
-      const search =
-        role === "professional" ? `?clientId=${selected.clientId}` : "";
-      const response = await apiFetch(
-        `/api/messages/${selected.professionalId}${search}`,
-      );
-      const data = await response.json();
-      if (!response.ok) throw Error(data.error);
-      setMessages(data);
-      const unread = data.filter(
-        (item) =>
-          !item.readAt &&
-          ((role === "professional" && item.author === "client") ||
-            (role !== "professional" && item.author === "professional")),
-      );
-      await Promise.all(
-        unread.map((item) =>
-          apiFetch(`/api/messages/${item.id}/read`, { method: "PATCH" }),
-        ),
-      );
-      if (unread.length) loadConversations();
-    } catch (requestError) {
-      setError(requestError.message || "No pudimos cargar los mensajes.");
-    }
-  }, [loadConversations, role, selected]);
-  useEffect(() => {
-    loadConversations();
-  }, [loadConversations]);
-  useEffect(() => {
-    loadMessages();
-  }, [loadMessages]);
-  const sendMessage = async (event) => {
-    event.preventDefault();
-    if (!selected || !draft.trim()) return;
-    try {
-      const url =
-        role === "professional"
-          ? "/api/professional/messages"
-          : "/api/messages";
-      const body =
-        role === "professional"
-          ? { clientId: selected.clientId, text: draft.trim() }
-          : { professionalId: selected.professionalId, text: draft.trim() };
-      const response = await apiFetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Idempotency-Key": `message-${crypto.randomUUID()}`,
-        },
-        body: JSON.stringify(body),
-      });
-      const data = await response.json();
-      if (!response.ok) throw Error(data.error);
-      setMessages((current) => [...current, data]);
-      setDraft("");
-      loadConversations();
-    } catch (requestError) {
-      setError(requestError.message || "No pudimos enviar el mensaje.");
-    }
-  };
-  return (
-    <div className="messages-page">
-      <aside className="threads">
-        <div className="thread-head">
-          <h2>Mensajes</h2>
-        </div>
-        {conversations.map((item) => (
-          <button
-            className={`thread ${selected?.professionalId === item.professionalId && selected?.clientId === item.clientId ? "active" : ""}`}
-            key={`${item.professionalId}-${item.clientId}`}
-            onClick={() => setSelected(item)}
-          >
-            {item.partner.initials ? (
-              <Avatar person={item.partner} size="small" />
-            ) : (
-              <span className="mini-avatar">
-                {item.partner.name.slice(0, 1)}
-              </span>
-            )}
-            <div>
-              <b>{item.partner.name}</b>
-              <p>{item.lastMessage?.text || "Sin mensajes"}</p>
-            </div>
-            <small>{formatMessageTime(item.lastMessage?.createdAt)}</small>
-            {item.unreadCount > 0 && <em>{item.unreadCount}</em>}
-          </button>
-        ))}
-        {!conversations.length && (
-          <p className="empty">Todavía no tenés conversaciones.</p>
-        )}
-      </aside>
-      <section className="chat">
-        {selected ? (
-          <>
-            <header>
-              <div>
-                <b>{selected.partner.name}</b>
-                <p>{role === "professional" ? "Cliente" : "Profesional"}</p>
-              </div>
-            </header>
-            <div className="chat-body">
-              {messages.map((item) => (
-                <div
-                  className={`bubble ${item.author === "professional" ? (role === "professional" ? "me" : "them") : role === "professional" ? "them" : "me"}`}
-                  key={item.id}
-                >
-                  {item.text}
-                  <small>{formatMessageTime(item.createdAt)}</small>
-                </div>
-              ))}
-            </div>
-            <form className="message-box" onSubmit={sendMessage}>
-              <input
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder="Escribí un mensaje..."
-                maxLength="1500"
-              />
-              <button className="send" aria-label="Enviar">
-                ↑
-              </button>
-            </form>
-          </>
-        ) : (
-          <div className="empty">Elegí una conversación para empezar.</div>
-        )}
-        {error && <p className="form-error">{error}</p>}
       </section>
     </div>
   );
