@@ -108,3 +108,5 @@ La integración PostgreSQL repite una reserva con la misma `Idempotency-Key` y e
 `src/components/VerificationRequests.tsx` migra a TypeScript el flujo de consulta y creación de solicitudes de verificación, con contratos de respuesta y errores tipados; la versión legacy fue retirada de `main.jsx`.
 
 La billetera muestra un estado vacío accesible cuando todavía no hay movimientos, evitando una sección sin explicación para cuentas nuevas.
+
+`src/components/ProfessionalOnboarding.tsx` extrae a TypeScript estricto el alta de profesionales: tipa la respuesta de sesión, normaliza campos de formulario y envía la disponibilidad semanal al `POST /api/professional/onboarding` real. `PUT /api/professional/availability` permanece como contrato independiente para la próxima edición autenticada de franjas; no se introdujo una llamada duplicada durante el alta.

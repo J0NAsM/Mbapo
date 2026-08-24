@@ -9,6 +9,7 @@ import { Wallet } from "./components/Wallet";
 import { ProfessionalHome } from "./components/ProfessionalHome";
 import { VerificationRequests } from "./components/VerificationRequests";
 import AdminPanel from "./components/AdminPanel";
+import ProfessionalOnboarding from "./components/ProfessionalOnboarding";
 import "./styles.css";
 
 if ("serviceWorker" in navigator)
@@ -688,7 +689,7 @@ function App() {
             professional={selectedProfessional}
           />
         ) : modal === "onboarding" ? (
-          <OnboardingFlow
+          <ProfessionalOnboarding
             close={() => setModal(null)}
             announce={announce}
             reload={loadDashboard}
@@ -1191,7 +1192,9 @@ function Jobs({ setModal, announce, jobs: jobList }) {
   );
 }
 
-function OnboardingFlow({ close, announce, reload, onSession }) {
+// Kept during the staged migration until the extracted flow is runtime-verified.
+// eslint-disable-next-line no-unused-vars
+function LegacyOnboardingFlow({ close, announce, reload, onSession }) {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const submit = async (event) => {

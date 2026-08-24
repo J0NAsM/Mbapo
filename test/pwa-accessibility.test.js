@@ -62,6 +62,25 @@ test("el panel administrativo se ejecuta desde el componente tipado", async () =
   assert.match(panel, /\/api\/admin\/users/);
 });
 
+test("el onboarding profesional se ejecuta desde el componente tipado", async () => {
+  const [app, onboarding, server] = await Promise.all([
+    readFile(resolve(root, "src/main.jsx"), "utf8"),
+    readFile(
+      resolve(root, "src/components/ProfessionalOnboarding.tsx"),
+      "utf8",
+    ),
+    readFile(resolve(root, "server.js"), "utf8"),
+  ]);
+  assert.match(
+    app,
+    /import ProfessionalOnboarding from "\.\/components\/ProfessionalOnboarding"/,
+  );
+  assert.match(onboarding, /type ProfessionalOnboardingProps/);
+  assert.match(onboarding, /\/api\/professional\/onboarding/);
+  assert.match(onboarding, /availability,/);
+  assert.match(server, /app\.put\("\/api\/professional\/availability"/);
+});
+
 test("la reserva consulta franjas reales antes de enviar la solicitud", async () => {
   const source = await readFile(resolve(root, "src/main.jsx"), "utf8");
   assert.match(source, /\/availability\?date=\$\{date\}/);
