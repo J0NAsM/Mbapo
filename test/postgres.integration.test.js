@@ -19,6 +19,15 @@ test(
       assert.equal(health.status, 200);
       assert.equal((await health.json()).storage, "postgres");
 
+      const professionals = await fetch(
+        `${url}/api/professionals?sort=price&direction=asc&limit=2`,
+      );
+      assert.equal(professionals.status, 200);
+      assert.equal((await professionals.json()).length, 2);
+      const jobs = await fetch(`${url}/api/jobs?sort=budget&limit=2`);
+      assert.equal(jobs.status, 200);
+      assert.equal((await jobs.json()).length, 2);
+
       const email = `postgres-${Date.now()}@example.com`;
       const registration = await fetch(`${url}/api/auth/register`, {
         method: "POST",

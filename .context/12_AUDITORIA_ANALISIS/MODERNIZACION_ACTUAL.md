@@ -44,3 +44,5 @@ La vista de trabajos tambiÃ©n consume `GET /api/jobs` con categorÃ­a, orden 
 `server/persistence/bookings.js` consulta reservas por cliente o profesional para el dashboard y la agenda profesional, evitando cargar esa colección desde el snapshot cuando PostgreSQL está configurado.
 
 `src/components/NotificationCenter.tsx` es el primer componente visual migrado a TypeScript estricto. `tsconfig.json` habilita `react-jsx`; los contratos de avisos y respuestas de API quedan tipados dentro del componente.
+
+`server/persistence/catalog.js` ejecuta filtros, orden y paginación de profesionales y trabajos sobre PostgreSQL. La integración SQL cubre ambos catálogos además de los flujos autenticados ya existentes.

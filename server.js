@@ -21,6 +21,7 @@ import { createMessagesRepository } from "./server/persistence/messages.js";
 import { createReviewsRepository } from "./server/persistence/reviews.js";
 import { createVerificationsRepository } from "./server/persistence/verifications.js";
 import { createBookingsRepository } from "./server/persistence/bookings.js";
+import { createCatalogRepository } from "./server/persistence/catalog.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.MBAPO_DATA_PATH || join(root, "data", "mbapo.json");
@@ -150,6 +151,7 @@ const messagesRepository = createMessagesRepository(pool);
 const reviewsRepository = createReviewsRepository(pool);
 const verificationsRepository = createVerificationsRepository(pool);
 const bookingsRepository = createBookingsRepository(pool);
+const catalogRepository = createCatalogRepository(pool);
 const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
@@ -1607,6 +1609,30 @@ app.get("/api/professionals", async (req, res) => {
     .replace(/[\u0300-\u036f]/g, "")
     .split(/\s+/)
     .filter(Boolean);
+  const sort = String(req.query.sort || "rating");
+  const directionName = req.query.direction === "asc" ? "asc" : "desc";
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 24));
+  if (!["rating", "price", "distance", "name"].includes(sort))
+    return fail(res, "Criterio de ordenamiento no vÃƒÂ¡lido");
+  if (catalogRepository) {
+    const result = await catalogRepository.professionals({
+      terms,
+      maxPrice,
+      maxDistance,
+      minRating,
+      verified,
+      available,
+      sort,
+      direction: directionName,
+      page,
+      limit,
+    });
+    res.setHeader("X-Total-Count", String(result.total));
+    res.setHeader("X-Page", String(page));
+    res.setHeader("X-Page-Size", String(limit));
+    return res.json(result.items);
+  }
   const db = await database();
   const results = db.professionals.filter((pro) => {
     const content =
@@ -1624,8 +1650,7 @@ app.get("/api/professionals", async (req, res) => {
       (!available || pro.available)
     );
   });
-  const sort = String(req.query.sort || "rating");
-  const direction = req.query.direction === "asc" ? 1 : -1;
+  const direction = directionName === "asc" ? 1 : -1;
   const sortValue = {
     rating: (item) => item.rating || 0,
     price: (item) => item.price || 0,
@@ -1640,19 +1665,32 @@ app.get("/api/professionals", async (req, res) => {
       ? direction * first.localeCompare(second, "es-PY")
       : direction * (first - second);
   });
-  const page = Math.max(1, Number(req.query.page) || 1);
-  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 24));
   res.setHeader("X-Total-Count", String(results.length));
   res.setHeader("X-Page", String(page));
   res.setHeader("X-Page-Size", String(limit));
   res.json(results.slice((page - 1) * limit, page * limit));
 });
 app.get("/api/jobs", async (req, res) => {
-  const db = await database();
-  const category = String(req.query.category || "").toLocaleLowerCase("es-PY");
+  const categoryInput = String(req.query.category || "");
+  const category = categoryInput.toLocaleLowerCase("es-PY");
   const sort = String(req.query.sort || "recent");
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 24));
+  if (!["recent", "budget"].includes(sort))
+    return fail(res, "Criterio de ordenamiento invÃ¡lido");
+  if (catalogRepository) {
+    const result = await catalogRepository.jobs({
+      category: categoryInput,
+      sort,
+      page,
+      limit,
+    });
+    res.setHeader("X-Total-Count", String(result.total));
+    res.setHeader("X-Page", String(page));
+    res.setHeader("X-Page-Size", String(limit));
+    return res.json(result.items);
+  }
+  const db = await database();
   const jobs = (db.jobs || [])
     .filter(
       (job) =>
