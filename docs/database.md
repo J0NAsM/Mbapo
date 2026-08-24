@@ -26,6 +26,8 @@ Durante la transición, cada agregado conserva parte de sus atributos en la colu
 
 Las escrituras usan una versión optimista de estado: si otra operación guardó primero, la API responde `409` para que el cliente recargue, en vez de sobrescribir datos silenciosamente.
 
+La mensajería ya persiste por entidad: mensaje, aviso interno, auditoría e idempotencia se escriben en sus tablas sin reescribir el estado completo. Los demás flujos continúan en transición y conservan el guardado compatible por snapshot hasta extraer cada transacción de dominio de forma atómica.
+
 `growth_events` solo conserva eventos mínimos de producto —por ejemplo, registro, búsqueda, reserva y referido— para medir embudos. No se deben registrar direcciones exactas, texto de conversaciones, documentos, contraseñas ni identificadores publicitarios.
 
 ## Producción

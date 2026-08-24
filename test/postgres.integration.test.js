@@ -56,18 +56,40 @@ test(
       });
       assert.equal(booking.status, 201);
 
-      const sentMessage = await fetch(`${url}/api/messages`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          professionalId: 1,
-          text: "Mensaje de persistencia PostgreSQL.",
-        }),
-      });
+      const messageHeaders = {
+        ...headers,
+        "Idempotency-Key": "postgres-message-idempotency-001",
+      };
+      const sendMessage = () =>
+        fetch(`${url}/api/messages`, {
+          method: "POST",
+          headers: messageHeaders,
+          body: JSON.stringify({
+            professionalId: 1,
+            text: "Mensaje de persistencia PostgreSQL.",
+          }),
+        });
+      const [sentMessage, replayedMessage] = await Promise.all([
+        sendMessage(),
+        sendMessage(),
+      ]);
       assert.equal(sentMessage.status, 201);
+      assert.equal(replayedMessage.status, 201);
+      assert.ok(
+        [sentMessage, replayedMessage].some(
+          (response) => response.headers.get("idempotency-replayed") === "true",
+        ),
+      );
       const thread = await fetch(`${url}/api/messages/1`, { headers });
       assert.equal(thread.status, 200);
-      assert.equal((await thread.json()).at(-1).author, "client");
+      const threadItems = await thread.json();
+      assert.equal(threadItems.at(-1).author, "client");
+      assert.equal(
+        threadItems.filter(
+          (item) => item.text === "Mensaje de persistencia PostgreSQL.",
+        ).length,
+        1,
+      );
       const conversations = await fetch(`${url}/api/conversations`, {
         headers,
       });

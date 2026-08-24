@@ -66,3 +66,5 @@ CI ejecuta `docker build --tag mbapo:ci .` después del build frontend. Docker n
 La mensajería conserva en móvil el selector de conversaciones como carril horizontal desplazable; ya no se oculta la lista de hilos. Una prueba estática evita que esa regresión vuelva a introducirse.
 
 `src/components/Identity.tsx` concentra Avatar y Stars con contratos TypeScript estrictos y valores seguros para identidad incompleta; `main.jsx` reutiliza este componente compartido.
+
+La escritura de mensajes en PostgreSQL ya evita `savePostgres`: mensaje, notificación interna, auditoría e idempotencia se guardan por entidad. El bloqueo transaccional de la tabla asigna IDs enteros sin colisión durante la transición del esquema. La prueba de integración valida que una repetición con la misma `Idempotency-Key` no duplica el mensaje.

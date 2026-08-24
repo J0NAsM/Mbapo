@@ -1009,6 +1009,31 @@ function rememberIdempotentResponse(req, status, body) {
     createdAt: new Date().toISOString(),
   });
 }
+function persistedIdempotency(req, res) {
+  const key = String(req.headers["idempotency-key"] || "").trim();
+  if (!key) return null;
+  if (key.length < 8 || key.length > 160) {
+    fail(res, "Idempotency-Key invÃ¡lido");
+    return false;
+  }
+  return {
+    accountId: req.account.id,
+    key,
+    method: req.method,
+    path: req.path,
+  };
+}
+function persistedNotification(accountId, type, title, body) {
+  return {
+    id: `ntf-${randomBytes(10).toString("hex")}`,
+    accountId,
+    type,
+    title,
+    body,
+    readAt: null,
+    createdAt: new Date().toISOString(),
+  };
+}
 function audit(db, account, action, entity, entityId, metadata = {}) {
   db.auditLog.unshift({
     id: nextId(db.auditLog),
@@ -2443,7 +2468,11 @@ app.get("/api/messages/:professionalId", requireAuth, async (req, res) => {
   res.json(messages);
 });
 app.post("/api/messages", requireAuth, async (req, res) => {
-  if (replayIdempotentRequest(req, res)) return;
+  const idempotency = messagesRepository
+    ? persistedIdempotency(req, res)
+    : null;
+  if (messagesRepository && idempotency === false) return;
+  if (!messagesRepository && replayIdempotentRequest(req, res)) return;
   const input = z
     .object({
       professionalId: z.coerce.number().int().positive(),
@@ -2469,10 +2498,36 @@ app.post("/api/messages", requireAuth, async (req, res) => {
     createdAt: new Date().toISOString(),
     readAt: null,
   };
-  db.messages.push(message);
   const professional = db.professionals.find(
     (item) => item.id === message.professionalId,
   );
+  if (messagesRepository) {
+    const notification = persistedNotification(
+      professional?.ownerId,
+      "message.received",
+      "Nuevo mensaje",
+      `${req.profile.name}: ${message.text.slice(0, 120)}`,
+    );
+    const result = await messagesRepository.createWithEffects({
+      message,
+      notification,
+      audit: {
+        actorId: req.account.id,
+        action: "message.sent",
+        entity: "message",
+        entityId: "pending",
+        metadata: { actor: "client" },
+        createdAt: new Date().toISOString(),
+      },
+      idempotency: idempotency && { ...idempotency, status: 201 },
+    });
+    if (result.replayed) {
+      res.setHeader("Idempotency-Replayed", "true");
+      return res.status(result.status).json(result.body);
+    }
+    return res.status(201).json(result.message);
+  }
+  db.messages.push(message);
   notify(
     db,
     professional?.ownerId,
@@ -2485,7 +2540,11 @@ app.post("/api/messages", requireAuth, async (req, res) => {
   res.status(201).json(message);
 });
 app.post("/api/professional/messages", requireAuth, async (req, res) => {
-  if (replayIdempotentRequest(req, res)) return;
+  const idempotency = messagesRepository
+    ? persistedIdempotency(req, res)
+    : null;
+  if (messagesRepository && idempotency === false) return;
+  if (!messagesRepository && replayIdempotentRequest(req, res)) return;
   const professional = ownedProfessionalOrFail(req, res);
   if (!professional) return;
   const input = z
@@ -2516,6 +2575,32 @@ app.post("/api/professional/messages", requireAuth, async (req, res) => {
     createdAt: new Date().toISOString(),
     readAt: null,
   };
+  if (messagesRepository) {
+    const notification = persistedNotification(
+      message.clientId,
+      "message.received",
+      "Nuevo mensaje",
+      `${professional.name}: ${message.text.slice(0, 120)}`,
+    );
+    const result = await messagesRepository.createWithEffects({
+      message,
+      notification,
+      audit: {
+        actorId: req.account.id,
+        action: "message.sent",
+        entity: "message",
+        entityId: "pending",
+        metadata: { actor: "professional" },
+        createdAt: new Date().toISOString(),
+      },
+      idempotency: idempotency && { ...idempotency, status: 201 },
+    });
+    if (result.replayed) {
+      res.setHeader("Idempotency-Replayed", "true");
+      return res.status(result.status).json(result.body);
+    }
+    return res.status(201).json(result.message);
+  }
   req.db.messages.push(message);
   notify(
     req.db,

@@ -1,6 +1,21 @@
 export function createNotificationsRepository(pool) {
   if (!pool) return null;
   return {
+    async create(notification) {
+      await pool.query(
+        "INSERT INTO notifications (id, account_id, type, title, body, read_at, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        [
+          notification.id,
+          notification.accountId,
+          notification.type,
+          notification.title,
+          notification.body,
+          notification.readAt || null,
+          notification.createdAt,
+        ],
+      );
+      return notification;
+    },
     async list(accountId, limit) {
       const result = await pool.query(
         "SELECT id, account_id, type, title, body, read_at, created_at FROM notifications WHERE account_id = $1 ORDER BY created_at DESC LIMIT $2",
