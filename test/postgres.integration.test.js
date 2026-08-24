@@ -305,6 +305,28 @@ test(
       assert.equal(releasedReplay.status, 200);
       assert.equal(releasedReplay.headers.get("idempotency-replayed"), "true");
 
+      const withdrawalHeaders = {
+        ...professionalHeaders,
+        "Idempotency-Key": "postgres-demo-withdrawal-idempotency-001",
+      };
+      const withdrawal = await fetch(`${url}/api/withdrawals`, {
+        method: "POST",
+        headers: withdrawalHeaders,
+        body: JSON.stringify({ amount: 1000 }),
+      });
+      assert.equal(withdrawal.status, 201);
+      assert.ok(Number((await withdrawal.json()).balance) >= 0);
+      const withdrawalReplay = await fetch(`${url}/api/withdrawals`, {
+        method: "POST",
+        headers: withdrawalHeaders,
+        body: JSON.stringify({ amount: 1000 }),
+      });
+      assert.equal(withdrawalReplay.status, 201);
+      assert.equal(
+        withdrawalReplay.headers.get("idempotency-replayed"),
+        "true",
+      );
+
       const dashboard = await fetch(`${url}/api/dashboard`, { headers });
       assert.equal(dashboard.status, 200);
       const dashboardData = await dashboard.json();
@@ -318,6 +340,15 @@ test(
           (item) => item.description === booking.title,
         ).length,
         2,
+      );
+      const professionalDashboard = await fetch(`${url}/api/dashboard`, {
+        headers: professionalHeaders,
+      });
+      assert.equal(professionalDashboard.status, 200);
+      assert.ok(
+        (await professionalDashboard.json()).transactions.some(
+          (item) => item.name === "Retiro de demostración solicitado",
+        ),
       );
 
       const notifications = await fetch(`${url}/api/notifications`, {

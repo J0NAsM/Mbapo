@@ -21,6 +21,7 @@ import { createMessagesRepository } from "./server/persistence/messages.js";
 import { createReviewsRepository } from "./server/persistence/reviews.js";
 import { createVerificationsRepository } from "./server/persistence/verifications.js";
 import { createBookingsRepository } from "./server/persistence/bookings.js";
+import { createWalletRepository } from "./server/persistence/wallet.js";
 import { createCatalogRepository } from "./server/persistence/catalog.js";
 import { createAccountsRepository } from "./server/persistence/accounts.js";
 import {
@@ -158,6 +159,7 @@ const messagesRepository = createMessagesRepository(pool);
 const reviewsRepository = createReviewsRepository(pool);
 const verificationsRepository = createVerificationsRepository(pool);
 const bookingsRepository = createBookingsRepository(pool);
+const walletRepository = createWalletRepository(pool);
 const catalogRepository = createCatalogRepository(pool);
 const accountsRepository = createAccountsRepository(pool);
 const stripe = process.env.STRIPE_SECRET_KEY
@@ -2802,7 +2804,9 @@ app.patch("/api/messages/:id/read", requireAuth, async (req, res) => {
   res.json({ id: message.id, readAt: message.readAt });
 });
 app.post("/api/withdrawals", requireAuth, async (req, res) => {
-  if (replayIdempotentRequest(req, res)) return;
+  const idempotency = walletRepository ? persistedIdempotency(req, res) : null;
+  if (walletRepository && idempotency === false) return;
+  if (!walletRepository && replayIdempotentRequest(req, res)) return;
   const input = withdrawalInput.safeParse(req.body);
   if (!input.success) return fail(res, "Monto de retiro inválido");
   if (isProduction)
@@ -2811,6 +2815,23 @@ app.post("/api/withdrawals", requireAuth, async (req, res) => {
       "Los retiros requieren un proveedor de pagos configurado",
       503,
     );
+  if (walletRepository) {
+    const result = await walletRepository.requestDemoWithdrawal({
+      accountId: req.account.id,
+      amount: input.data.amount,
+      createdAt: new Date().toISOString(),
+      idempotency,
+    });
+    if (result.replayed) {
+      res.setHeader("Idempotency-Replayed", "true");
+      return res.status(result.status).json(result.body);
+    }
+    if (result.error === "balance")
+      return fail(res, "El monto no puede superar tu saldo");
+    if (result.error === "profile")
+      return fail(res, "No se pudo cargar tu billetera", 409);
+    return res.status(201).json(result.body);
+  }
   const db = req.db;
   if (input.data.amount > req.profile.balance)
     return fail(res, "El monto no puede superar tu saldo");
