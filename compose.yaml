@@ -1,13 +1,15 @@
+# Stack exclusivamente local: usa una base efímera/volumen local y no sustituye
+# una base administrada ni un gestor de secretos de producción.
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-mbapo}
-      POSTGRES_USER: ${POSTGRES_USER:-mbapo}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mbapo_local_only}
+      POSTGRES_DB: "${POSTGRES_DB:-mbapo}"
+      POSTGRES_USER: "${POSTGRES_USER:-mbapo}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD_is_required}"
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - mbapo_postgres:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
@@ -15,19 +17,22 @@ services:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
 
   app:
     build: .
     restart: unless-stopped
     environment:
       NODE_ENV: development
-      PORT: 3001
-      MBAPO_AUTH_SECRET: ${MBAPO_AUTH_SECRET:-mbapo-compose-local-only}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-mbapo}:${POSTGRES_PASSWORD:-mbapo_local_only}@postgres:5432/${POSTGRES_DB:-mbapo}
-      PAYMENTS_MODE: demo
+      PORT: "${PORT:-3001}"
+      MBAPO_AUTH_SECRET: "${MBAPO_AUTH_SECRET:?MBAPO_AUTH_SECRET_is_required}"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-mbapo}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD_is_required}@postgres:5432/${POSTGRES_DB:-mbapo}"
+      PAYMENTS_MODE: "${PAYMENTS_MODE:-demo}"
+      TRUST_PROXY: "${TRUST_PROXY:-false}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
     ports:
-      - "3001:3001"
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3001}:${PORT:-3001}"
     depends_on:
       postgres:
         condition: service_healthy

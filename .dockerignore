@@ -5,6 +5,14 @@ data/
 .env.*
 !.env.example
 .git/
+.github/
+.context/
 coverage/
 docs/
 test/
+*.md
+*.txt
+.envrc
+*.pem
+*.key
+*.crt

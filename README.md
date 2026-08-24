@@ -36,6 +36,13 @@ Para levantar el entorno completo de desarrollo (Vite, API y PostgreSQL), usÃ¡
 
 El esquema versionable está en [`database/schema.sql`](database/schema.sql). PostgreSQL crea tablas de cuentas, perfiles, profesionales, trabajos, reservas, mensajes, transacciones, reseñas, verificaciones y auditoría. La explicación operativa está en [docs/database.md](docs/database.md).
 
+## Docker local
+
+El stack local de contenedores requiere definir `MBAPO_AUTH_SECRET` y
+`POSTGRES_PASSWORD` en `.env`; no incorpora secretos de respaldo. La imagen,
+los puertos locales, el healthcheck y el procedimiento de staging están
+documentados en [docs/docker.md](docs/docker.md).
+
 ## Calidad
 
 ```bash

@@ -11,6 +11,25 @@ No habilitar registros públicos, pagos ni documentos de identidad hasta complet
 5. Revisar dependencias continuamente y mantener CI en verde.
    La imagen Docker se construye en CI; antes de publicarla, ejecutar el healthcheck contra una base de staging.
 
+### Imagen, configuración y salida a producción
+
+Antes de promover una imagen, verificar que fue construida desde un commit
+identificable, que pasó CI y que `/api/health` responde `200` contra PostgreSQL
+de staging después de aplicar las migraciones. Confirmar que los puertos de la
+base no sean públicos y que `TRUST_PROXY=true` se use solo detrás del proxy
+conocido que sanea las cabeceras de cliente.
+
+Separar los secretos por entorno y entregarlos mediante el gestor de secretos:
+`MBAPO_AUTH_SECRET`, `DATABASE_URL`, credenciales de Stripe y cualquier futuro
+proveedor de notificaciones. No reutilizar `.env`, contraseñas ni bases de
+desarrollo en staging o producción. El runbook operativo de contenedores está
+en [docs/docker.md](docker.md).
+
+Definir una ventana de despliegue con backup verificable, observación de logs y
+métricas, comprobación de healthcheck y un rollback a la imagen anterior. Las
+migraciones deben ser compatibles hacia atrás durante el rollback; no recuperar
+un incidente mediante `TRUNCATE`, borrado de volumen o edición manual de datos.
+
 ## Cuentas, permisos y confianza
 
 6. Eliminar cuentas demo, definir recuperación de cuenta, verificación de email/teléfono y política de rotación/revocación de sesión.
