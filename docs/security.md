@@ -4,6 +4,8 @@ La aplicación está preparada para desarrollo y pruebas controladas. Antes de o
 
 ## Protecciones implementadas
 
+La SPA conserva el token de acceso en `sessionStorage` y lo renueva de forma proactiva durante los últimos cinco minutos de vigencia mediante `POST /api/auth/refresh`. Solo hay una renovación en curso por pestaña; si la sesión fue revocada, el cliente no intenta extenderla y la API responde `401`.
+
 - Contraseñas derivadas con `scrypt`; hashes nunca se devuelven desde el dashboard.
 - Tokens firmados, con expiración y versión por cuenta. Un cambio de rol invalida sesiones existentes.
 - Autorización en servidor para recursos de cuenta, mensajes, reservas, reseñas y administración.
