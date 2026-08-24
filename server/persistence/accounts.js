@@ -123,5 +123,56 @@ export function createAccountsRepository(pool) {
         client.release();
       }
     },
+    async revokeSession(input) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const accountResult = await client.query(
+          "SELECT token_version FROM accounts WHERE id = $1 FOR UPDATE",
+          [input.accountId],
+        );
+        const account = accountResult.rows[0];
+        if (!account) {
+          await client.query("COMMIT");
+          return { error: "missing" };
+        }
+        const tokenVersion = Number(account.token_version || 0) + 1;
+        await client.query(
+          "UPDATE accounts SET token_version = $2 WHERE id = $1",
+          [input.accountId, tokenVersion],
+        );
+        await client.query("LOCK TABLE audit_log IN EXCLUSIVE MODE");
+        const auditId = Number(
+          (
+            await client.query(
+              "SELECT COALESCE(MAX(id), 0) + 1 AS id FROM audit_log",
+            )
+          ).rows[0].id,
+        );
+        await client.query(
+          "INSERT INTO audit_log (id, payload, actor_account_id) VALUES ($1,$2::jsonb,$3)",
+          [
+            auditId,
+            JSON.stringify({
+              id: auditId,
+              actorId: input.accountId,
+              action: "account.logged_out",
+              entity: "account",
+              entityId: input.accountId,
+              metadata: {},
+              createdAt: input.createdAt,
+            }),
+            input.accountId,
+          ],
+        );
+        await client.query("COMMIT");
+        return { tokenVersion };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
   };
 }

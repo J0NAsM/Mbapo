@@ -1179,6 +1179,15 @@ app.post("/api/auth/login", async (req, res) => {
   });
 });
 app.post("/api/auth/logout", requireAuth, async (req, res) => {
+  if (accountsRepository) {
+    const result = await accountsRepository.revokeSession({
+      accountId: req.account.id,
+      createdAt: new Date().toISOString(),
+    });
+    if (result.error === "missing")
+      return fail(res, "La sesión ya no es válida", 401);
+    return res.status(204).end();
+  }
   req.account.tokenVersion = Number(req.account.tokenVersion || 0) + 1;
   audit(req.db, req.account, "account.logged_out", "account", req.account.id);
   await save(req.db);

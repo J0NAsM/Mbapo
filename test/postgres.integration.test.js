@@ -420,6 +420,15 @@ test(
           (item) => item.name === "Retiro de demostración solicitado",
         ),
       );
+      const professionalLogout = await fetch(`${url}/api/auth/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${professionalSession.token}` },
+      });
+      assert.equal(professionalLogout.status, 204);
+      const revokedProfessional = await fetch(`${url}/api/dashboard`, {
+        headers: { Authorization: `Bearer ${professionalSession.token}` },
+      });
+      assert.equal(revokedProfessional.status, 401);
 
       const notifications = await fetch(`${url}/api/notifications`, {
         headers,

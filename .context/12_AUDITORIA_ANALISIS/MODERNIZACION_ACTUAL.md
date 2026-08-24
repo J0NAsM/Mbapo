@@ -91,6 +91,8 @@ La resolución administrativa de verificaciones dejó también el snapshot: bloq
 
 La moderación de cuentas usa `server/persistence/accounts.js`: el cambio de rol, verificación o bloqueo bloquea cuenta y perfil, rota `tokenVersion` cuando corresponde y registra auditoría sin sobrescribir otros agregados.
 
+El logout usa el mismo repositorio de cuentas en PostgreSQL: rota `tokenVersion` y registra auditoría en una transacción, por lo que el token entregado antes del cierre deja de ser válido de inmediato.
+
 La moderación administrativa de reservas usa el mismo agregado PostgreSQL de reservas, con auditoría e idempotencia. La asignación de dueño de un perfil profesional y la configuración de plataforma también escriben ahora sus filas relacionales de forma directa; la asignación serializa la tabla de profesionales para impedir vínculos duplicados durante la transición del esquema.
 
 `src/components/AdminPanel.tsx` extrae el panel administrativo real a TypeScript estricto, con contratos para estado, métricas, cuentas, profesionales, trabajos, verificaciones y configuración. Conserva deliberadamente el token administrativo aislado de la sesión normal, la recarga posterior a mutaciones y la búsqueda paginada con debounce.
