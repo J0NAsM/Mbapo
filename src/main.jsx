@@ -9,6 +9,7 @@ import { Wallet } from "./components/Wallet";
 import { ProfessionalHome } from "./components/ProfessionalHome";
 import { VerificationRequests } from "./components/VerificationRequests";
 import AdminPanel from "./components/AdminPanel";
+import BookingFlow from "./components/BookingFlow";
 import ProfessionalOnboarding from "./components/ProfessionalOnboarding";
 import "./styles.css";
 
@@ -686,7 +687,7 @@ function App() {
             close={() => setModal(null)}
             announce={announce}
             reload={loadDashboard}
-            professional={selectedProfessional}
+            professional={selectedProfessional || professionals[0]}
           />
         ) : modal === "onboarding" ? (
           <ProfessionalOnboarding
@@ -1645,7 +1646,9 @@ function ModalNew({ kind, close, announce, reload }) {
   );
 }
 
-function BookingFlow({
+// Kept during the staged migration until the extracted flow is runtime-verified.
+// eslint-disable-next-line no-unused-vars
+function LegacyBookingFlow({
   close,
   announce,
   reload,

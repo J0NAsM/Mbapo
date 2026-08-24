@@ -82,8 +82,12 @@ test("el onboarding profesional se ejecuta desde el componente tipado", async ()
 });
 
 test("la reserva consulta franjas reales antes de enviar la solicitud", async () => {
-  const source = await readFile(resolve(root, "src/main.jsx"), "utf8");
-  assert.match(source, /\/availability\?date=\$\{date\}/);
-  assert.match(source, /No quedan franjas disponibles ese día/);
-  assert.doesNotMatch(source, /<option>08:00 – 10:00<\/option>/);
+  const [app, flow] = await Promise.all([
+    readFile(resolve(root, "src/main.jsx"), "utf8"),
+    readFile(resolve(root, "src/components/BookingFlow.tsx"), "utf8"),
+  ]);
+  assert.match(app, /import BookingFlow from "\.\/components\/BookingFlow"/);
+  assert.match(flow, /\/availability\?date=\$\{date\}/);
+  assert.match(flow, /No quedan franjas disponibles ese día/);
+  assert.doesNotMatch(flow, /<option>08:00 – 10:00<\/option>/);
 });
