@@ -80,3 +80,5 @@ La creación de reseñas en PostgreSQL valida y bloquea la reserva finalizada, e
 La creación de reservas en PostgreSQL se ejecuta ahora por transacción: verifica profesional, disponibilidad y solapamientos con bloqueo de tabla; guarda reserva, aviso, auditoría, analítica e idempotencia sin `savePostgres`.
 
 La integración PostgreSQL repite una reserva con la misma `Idempotency-Key` y exige la cabecera `Idempotency-Replayed`, para detectar duplicación accidental en este comando.
+
+`src/components/ProfessionalHome.tsx` extrae el espacio profesional de `main.jsx`, con contratos TypeScript para perfil, reservas, postulaciones y conversaciones; el componente legacy fue retirado.
