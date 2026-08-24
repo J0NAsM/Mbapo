@@ -68,3 +68,5 @@ La mensajería conserva en móvil el selector de conversaciones como carril hori
 `src/components/Identity.tsx` concentra Avatar y Stars con contratos TypeScript estrictos y valores seguros para identidad incompleta; `main.jsx` reutiliza este componente compartido.
 
 La escritura de mensajes en PostgreSQL ya evita `savePostgres`: mensaje, notificación interna, auditoría e idempotencia se guardan por entidad. El bloqueo transaccional de la tabla asigna IDs enteros sin colisión durante la transición del esquema. La prueba de integración valida que una repetición con la misma `Idempotency-Key` no duplica el mensaje.
+
+Las nuevas solicitudes de verificación usan también una transacción PostgreSQL por entidad: evita solicitudes pendientes duplicadas y persiste los avisos de moderación sin llamar a `savePostgres`. La resolución administrativa seguirá siendo parte del siguiente agregado, porque actualiza simultáneamente solicitud, cuenta y perfil profesional.

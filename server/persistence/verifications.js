@@ -5,6 +5,53 @@ function pageOffset(page, limit) {
 export function createVerificationsRepository(pool) {
   if (!pool) return null;
   return {
+    async createWithNotifications({ request, notifications }) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("LOCK TABLE verifications IN EXCLUSIVE MODE");
+        const pending = await client.query(
+          "SELECT 1 FROM verifications WHERE account_id = $1 AND payload->>'kind' = $2 AND payload->>'status' = 'pending'",
+          [request.userId, request.kind],
+        );
+        if (pending.rowCount) {
+          await client.query("COMMIT");
+          return { duplicate: true };
+        }
+        const id = Number(
+          (
+            await client.query(
+              "SELECT COALESCE(MAX(id), 0) + 1 AS id FROM verifications",
+            )
+          ).rows[0].id,
+        );
+        const saved = { ...request, id };
+        await client.query(
+          "INSERT INTO verifications (id, payload, account_id) VALUES ($1, $2::jsonb, $3)",
+          [id, JSON.stringify(saved), saved.userId],
+        );
+        for (const notification of notifications)
+          await client.query(
+            "INSERT INTO notifications (id, account_id, type, title, body, read_at, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+            [
+              notification.id,
+              notification.accountId,
+              notification.type,
+              notification.title,
+              notification.body,
+              notification.readAt || null,
+              notification.createdAt,
+            ],
+          );
+        await client.query("COMMIT");
+        return { request: saved };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
     async listForUser(accountId) {
       const result = await pool.query(
         "SELECT payload FROM verifications WHERE account_id = $1 ORDER BY created_at DESC, id DESC",

@@ -106,6 +106,12 @@ test(
         body: JSON.stringify({ kind: "identity" }),
       });
       assert.equal(verification.status, 201);
+      const duplicateVerification = await fetch(`${url}/api/verifications`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ kind: "identity" }),
+      });
+      assert.equal(duplicateVerification.status, 409);
       const ownVerifications = await fetch(`${url}/api/verifications`, {
         headers,
       });

@@ -2779,6 +2779,32 @@ app.post("/api/verifications", requireAuth, async (req, res) => {
   if (!["identity", "professional", "address"].includes(kind))
     return fail(res, "Tipo de verificación no válido");
   const db = req.db;
+  if (verificationsRepository) {
+    const result = await verificationsRepository.createWithNotifications({
+      request: {
+        userId: req.account.id,
+        kind,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      },
+      notifications: db.authUsers
+        .filter((user) => user.role === "admin")
+        .map((admin) =>
+          persistedNotification(
+            admin.id,
+            "verification.requested",
+            "Nueva verificación para revisar",
+            `${req.profile.name} solicitó verificación de ${kind}.`,
+          ),
+        ),
+    });
+    if (result.duplicate)
+      return fail(res, "Ya tenés una solicitud de este tipo en revisión", 409);
+    return res.status(201).json({
+      request: result.request,
+      message: "Solicitud recibida. Un revisor la evaluará.",
+    });
+  }
   if (
     db.verifications.some(
       (item) =>
