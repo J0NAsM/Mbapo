@@ -465,6 +465,9 @@ function App() {
     );
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#main-content">
+        Ir al contenido principal
+      </a>
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark">m</span>
@@ -514,8 +517,12 @@ function App() {
           </div>
         </div>
       </aside>
-      <main>
-        {notice && <div className="toast">✓ {notice}</div>}
+      <main id="main-content" tabIndex="-1">
+        {notice && (
+          <div className="toast" role="status" aria-live="polite">
+            ✓ {notice}
+          </div>
+        )}
         {view === "discover" && role !== "professional" && (
           <Discover
             filtered={filtered}
@@ -1888,6 +1895,7 @@ function Profile({
         </div>
       </section>
       <section className="profile-options">
+        <NotificationCenter />
         <VerificationRequests />
         {role === "client" && (
           <article>
@@ -1956,6 +1964,68 @@ function Profile({
         </article>
       </section>
     </div>
+  );
+}
+
+function NotificationCenter() {
+  const [notifications, setNotifications] = useState([]);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    try {
+      const response = await apiFetch("/api/notifications?limit=10");
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      setNotifications(data.items);
+    } catch (requestError) {
+      setError(requestError.message || "No pudimos cargar los avisos.");
+    }
+  }, []);
+  useEffect(() => {
+    load();
+  }, [load]);
+  const markRead = async (id) => {
+    try {
+      const response = await apiFetch(`/api/notifications/${id}/read`, {
+        method: "PATCH",
+      });
+      const data = await response.json();
+      if (!response.ok) throw Error(data.error);
+      setNotifications((current) =>
+        current.map((item) => (item.id === id ? data : item)),
+      );
+    } catch (requestError) {
+      setError(requestError.message || "No pudimos actualizar el aviso.");
+    }
+  };
+  return (
+    <article className="notification-card">
+      <span>â™¡</span>
+      <div>
+        <h3>Avisos internos</h3>
+        {notifications.length ? (
+          <ul className="notification-list" aria-label="Avisos recientes">
+            {notifications.map((item) => (
+              <li key={item.id} className={item.readAt ? "" : "unread"}>
+                <b>{item.title}</b>
+                <p>{item.body}</p>
+                <small>{messageTime(item.createdAt)}</small>
+                {!item.readAt && (
+                  <button
+                    className="link-btn"
+                    onClick={() => markRead(item.id)}
+                  >
+                    Marcar leÃ­do
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>No tenÃ©s avisos nuevos.</p>
+        )}
+        {error && <p className="form-error">{error}</p>}
+      </div>
+    </article>
   );
 }
 
@@ -2662,6 +2732,7 @@ function AdminPanel({ session, onLogout, announce }) {
   const [state, setState] = useState(null);
   const [platformDraft, setPlatformDraft] = useState("");
   const [error, setError] = useState("");
+  const [accountQuery, setAccountQuery] = useState("");
   const headers = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${session.token}`,
@@ -2767,6 +2838,15 @@ function AdminPanel({ session, onLogout, announce }) {
       setError(err.message);
     }
   };
+  const visibleUsers = useMemo(() => {
+    const query = accountQuery.trim().toLocaleLowerCase("es-PY");
+    if (!query) return state?.users || [];
+    return (state?.users || []).filter((user) =>
+      `${user.name} ${user.email} ${user.role} ${user.status || "active"}`
+        .toLocaleLowerCase("es-PY")
+        .includes(query),
+    );
+  }, [accountQuery, state?.users]);
   if (!state)
     return (
       <section className="admin-page">
@@ -2956,7 +3036,15 @@ function AdminPanel({ session, onLogout, announce }) {
           <h2>Cuentas</h2>
           <p>Verificación y rol de acceso.</p>
         </div>
-        {state.users.map((user) => (
+        <label className="admin-search">
+          Buscar cuenta
+          <input
+            value={accountQuery}
+            onChange={(event) => setAccountQuery(event.target.value)}
+            placeholder="Nombre, correo, rol o estado"
+          />
+        </label>
+        {visibleUsers.map((user) => (
           <div className="admin-row users" key={user.id}>
             <span>
               <b>{user.name}</b>
@@ -3000,6 +3088,7 @@ function AdminPanel({ session, onLogout, announce }) {
             </label>
           </div>
         ))}
+        {!visibleUsers.length && <p className="empty">Sin coincidencias.</p>}
       </section>
       <section className="admin-section">
         <div>

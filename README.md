@@ -32,12 +32,15 @@ docker compose up -d postgres
 npm run api
 ```
 
+Para levantar el entorno completo de desarrollo (Vite, API y PostgreSQL), usÃ¡ `docker compose up --build`. Docker aplica el healthcheck de PostgreSQL antes de iniciar la aplicaciÃ³n. Las migraciones se registran en `schema_migrations` al iniciar la API; no se usa `TRUNCATE` global.
+
 El esquema versionable está en [`database/schema.sql`](database/schema.sql). PostgreSQL crea tablas de cuentas, perfiles, profesionales, trabajos, reservas, mensajes, transacciones, reseñas, verificaciones y auditoría. La explicación operativa está en [docs/database.md](docs/database.md).
 
 ## Calidad
 
 ```bash
 npm run lint
+npm run typecheck
 npm test
 npm run build
 npm run format:check

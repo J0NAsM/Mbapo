@@ -20,6 +20,11 @@ after(async () => {
 });
 
 test("protege el dashboard y aísla datos de una nueva cuenta", async () => {
+  const catalog = await fetch(`${url}/api/professionals?sort=price&limit=2`);
+  assert.equal(catalog.status, 200);
+  assert.equal(catalog.headers.get("x-total-count"), "4");
+  assert.equal((await catalog.json()).length, 2);
+
   const denied = await fetch(`${url}/api/dashboard`);
   assert.equal(denied.status, 401);
 
@@ -296,6 +301,14 @@ test("vincula una cuenta profesional y restringe su operación a sus propias res
     },
   );
   assert.equal(confirmation.status, 200);
+  const bookingNotice = await fetch(`${url}/api/notifications`, {
+    headers: clientHeaders,
+  });
+  assert.ok(
+    (await bookingNotice.json()).items.some(
+      (item) => item.type === "booking.status_changed",
+    ),
+  );
 
   const payment = await fetch(`${url}/api/payments/intents`, {
     method: "POST",
@@ -304,6 +317,14 @@ test("vincula una cuenta profesional y restringe su operación a sus propias res
   });
   assert.equal(payment.status, 201);
   assert.equal((await payment.json()).demo, true);
+  const paymentNotice = await fetch(`${url}/api/notifications`, {
+    headers: professionalHeaders,
+  });
+  assert.ok(
+    (await paymentNotice.json()).items.some(
+      (item) => item.type === "payment.authorized",
+    ),
+  );
 
   const started = await fetch(
     `${url}/api/professional/bookings/${booking.id}/status`,
@@ -376,7 +397,38 @@ test("vincula una cuenta profesional y restringe su operación a sus propias res
   const messages = await fetch(`${url}/api/messages/1`, {
     headers: clientHeaders,
   });
-  assert.equal((await messages.json()).at(-1).author, "professional");
+  const thread = await messages.json();
+  assert.equal(thread.at(-1).author, "professional");
+  const markedRead = await fetch(
+    `${url}/api/messages/${thread.at(-1).id}/read`,
+    {
+      method: "PATCH",
+      headers: clientHeaders,
+    },
+  );
+  assert.equal(markedRead.status, 200);
+  const messageNotice = await fetch(`${url}/api/notifications`, {
+    headers: professionalHeaders,
+  });
+  assert.ok(
+    (await messageNotice.json()).items.some(
+      (item) => item.type === "message.received",
+    ),
+  );
+
+  const blockProfessional = await fetch(
+    `${url}/api/admin/users/${professionalAccount.user.id}`,
+    {
+      method: "PATCH",
+      headers: adminHeaders,
+      body: JSON.stringify({ status: "blocked" }),
+    },
+  );
+  assert.equal(blockProfessional.status, 200);
+  const blockedWorkspace = await fetch(`${url}/api/professional/dashboard`, {
+    headers: professionalHeaders,
+  });
+  assert.equal(blockedWorkspace.status, 401);
 });
 
 test("permite onboarding profesional y evita reservas solapadas", async () => {

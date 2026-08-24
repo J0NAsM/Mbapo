@@ -54,6 +54,8 @@ Consultá [`docs/database.md`](database.md) y [`docs/security.md`](security.md) 
 
 ## Contratos recientes
 
+Los webhooks de Stripe guardan cada `event.id` por 30 dÃ­as: una reentrega firmada responde `replayed: true` y no vuelve a ejecutar efectos. Las notificaciones internas cubren cambios de reserva, autorizaciones y liberaciones demo, mensajes, reseÃ±as y revisiones; email y push continÃºan desacoplados y sin configurar.
+
 - `POST /api/auth/logout` revoca la sesión actual mediante `tokenVersion`.
 - `POST /api/professional/onboarding` crea un perfil profesional con servicios, zonas y disponibilidad, y devuelve un token renovado.
 - `GET /api/professional/profile` y `PUT /api/professional/availability` son exclusivos del perfil profesional vinculado.

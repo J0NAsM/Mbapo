@@ -11,6 +11,26 @@ services:
     volumes:
       - mbapo_postgres:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      MBAPO_AUTH_SECRET: ${MBAPO_AUTH_SECRET:-mbapo-compose-local-only}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mbapo}:${POSTGRES_PASSWORD:-mbapo_local_only}@postgres:5432/${POSTGRES_DB:-mbapo}
+      PAYMENTS_MODE: demo
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   mbapo_postgres:

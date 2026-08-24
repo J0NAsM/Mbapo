@@ -101,13 +101,15 @@ app.post(
     } catch {
       return res.status(400).json({ error: "Firma de webhook inválida" });
     }
+    const db = await database();
+    if ((db.webhookEvents || []).some((processed) => processed.id === event.id))
+      return res.json({ received: true, replayed: true });
     if (
       event.type === "payment_intent.succeeded" ||
       event.type === "payment_intent.amount_capturable_updated"
     ) {
       const intent = event.data.object;
       const bookingId = Number(intent.metadata.bookingId);
-      const db = await database();
       const booking = db.bookings.find((item) => item.id === bookingId);
       if (booking && booking.paymentIntentId === intent.id) {
         const previousStatus = booking.paymentStatus;
@@ -133,9 +135,14 @@ app.post(
           eventType: event.type,
           intentId: intent.id,
         });
-        await save(db);
       }
     }
+    db.webhookEvents.push({
+      id: event.id,
+      processedAt: new Date().toISOString(),
+    });
+    db.webhookEvents.splice(10000);
+    await save(db);
     res.json({ received: true });
   },
 );
@@ -385,6 +392,7 @@ function ensureSystemData(data) {
   data.growthEvents ||= [];
   data.idempotencyKeys ||= [];
   data.notifications ||= [];
+  data.webhookEvents ||= [];
   data.userProfiles ||= {};
   if (data.user?.id && !data.userProfiles[data.user.id])
     data.userProfiles[data.user.id] = data.user;
@@ -636,6 +644,8 @@ async function requireAdmin(req, res, next) {
   const user = db.authUsers.find((item) => item.id === payload.sub);
   if (!user || user.role !== "admin" || user.tokenVersion !== payload.ver)
     return fail(res, "No tenés permisos de administrador", 403);
+  if (user.status === "blocked")
+    return fail(res, "Esta cuenta estÃ¡ bloqueada", 403);
   req.admin = user;
   next();
 }
@@ -695,6 +705,7 @@ async function loadPostgresData() {
     growthEvents,
     idempotencyKeys,
     notifications,
+    webhookEvents,
   ] = await Promise.all([
     pool.query("SELECT payload FROM platform_settings WHERE id = 1"),
     pool.query("SELECT version FROM application_state_version WHERE id = 1"),
@@ -716,6 +727,9 @@ async function loadPostgresData() {
     ),
     pool.query(
       "SELECT id, account_id, type, title, body, read_at, created_at FROM notifications ORDER BY created_at DESC",
+    ),
+    pool.query(
+      "SELECT event_id, processed_at FROM stripe_webhook_events WHERE processed_at > now() - interval '30 days'",
     ),
   ]);
   return {
@@ -761,6 +775,10 @@ async function loadPostgresData() {
       body: row.body,
       readAt: row.read_at,
       createdAt: row.created_at,
+    })),
+    webhookEvents: webhookEvents.rows.map((row) => ({
+      id: row.event_id,
+      processedAt: row.processed_at,
     })),
   };
 }
@@ -900,6 +918,14 @@ async function savePostgres(data) {
           notification.readAt || null,
           notification.createdAt || new Date().toISOString(),
         ],
+      );
+    await client.query(
+      "DELETE FROM stripe_webhook_events WHERE processed_at < now() - interval '30 days'",
+    );
+    for (const event of data.webhookEvents || [])
+      await client.query(
+        "INSERT INTO stripe_webhook_events (event_id, processed_at) VALUES ($1,$2) ON CONFLICT (event_id) DO NOTHING",
+        [event.id, event.processedAt || new Date().toISOString()],
       );
     data.__version = Number(updated.rows[0].version);
     await client.query("COMMIT");
@@ -1604,6 +1630,13 @@ app.patch("/api/admin/verifications/:id", requireAdmin, async (req, res) => {
       status: verification.status,
     },
   );
+  notify(
+    db,
+    verification.userId,
+    "verification.reviewed",
+    "VerificaciÃ³n actualizada",
+    `Tu solicitud de verificaciÃ³n fue ${verification.status === "approved" ? "aprobada" : "rechazada"}.`,
+  );
   await save(db);
   res.json(verification);
 });
@@ -1636,7 +1669,51 @@ app.get("/api/professionals", async (req, res) => {
       (!available || pro.available)
     );
   });
-  res.json(results);
+  const sort = String(req.query.sort || "rating");
+  const direction = req.query.direction === "asc" ? 1 : -1;
+  const sortValue = {
+    rating: (item) => item.rating || 0,
+    price: (item) => item.price || 0,
+    distance: (item) => Number.parseFloat(item.distance) || Infinity,
+    name: (item) => item.name || "",
+  }[sort];
+  if (!sortValue) return fail(res, "Criterio de ordenamiento no vÃ¡lido");
+  results.sort((left, right) => {
+    const first = sortValue(left);
+    const second = sortValue(right);
+    return typeof first === "string"
+      ? direction * first.localeCompare(second, "es-PY")
+      : direction * (first - second);
+  });
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 24));
+  res.setHeader("X-Total-Count", String(results.length));
+  res.setHeader("X-Page", String(page));
+  res.setHeader("X-Page-Size", String(limit));
+  res.json(results.slice((page - 1) * limit, page * limit));
+});
+app.get("/api/jobs", async (req, res) => {
+  const db = await database();
+  const category = String(req.query.category || "").toLocaleLowerCase("es-PY");
+  const sort = String(req.query.sort || "recent");
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 24));
+  const jobs = (db.jobs || [])
+    .filter(
+      (job) =>
+        job.status !== "archived" &&
+        (!category || job.category?.toLocaleLowerCase("es-PY") === category),
+    )
+    .sort((left, right) => {
+      if (sort === "budget") return money(right.budget) - money(left.budget);
+      return new Date(right.createdAt || 0) - new Date(left.createdAt || 0);
+    });
+  if (!["recent", "budget"].includes(sort))
+    return fail(res, "Criterio de ordenamiento no vÃ¡lido");
+  res.setHeader("X-Total-Count", String(jobs.length));
+  res.setHeader("X-Page", String(page));
+  res.setHeader("X-Page-Size", String(limit));
+  res.json(jobs.slice((page - 1) * limit, page * limit));
 });
 app.get("/api/dashboard", requireAuth, async (req, res) => {
   const db = req.db;
@@ -1937,6 +2014,13 @@ app.patch(
       booking.id,
       { status, actor: "professional" },
     );
+    notify(
+      req.db,
+      booking.clientId,
+      "booking.status_changed",
+      "ActualizaciÃ³n de tu reserva",
+      `${professional.name} marcÃ³ tu reserva como ${status}.`,
+    );
     await save(req.db);
     res.json(booking);
   },
@@ -2034,6 +2118,16 @@ app.patch("/api/bookings/:bookingId/status", requireAuth, async (req, res) => {
   audit(db, req.account, "booking.status_changed", "booking", booking.id, {
     status,
   });
+  const professional = db.professionals.find(
+    (item) => item.id === booking.professionalId,
+  );
+  notify(
+    db,
+    professional?.ownerId,
+    "booking.status_changed",
+    "ActualizaciÃ³n de reserva",
+    `${req.profile.name} marcÃ³ la reserva como ${status}.`,
+  );
   if (status === "Finalizado") qualifyReferral(db, req.account);
   await save(db);
   res.json(booking);
@@ -2070,6 +2164,16 @@ app.post("/api/payments/intents", requireAuth, async (req, res) => {
       status: "Autorizado",
     });
     const result = { demo: true, paymentStatus: booking.paymentStatus };
+    const professional = db.professionals.find(
+      (item) => item.id === booking.professionalId,
+    );
+    notify(
+      db,
+      professional?.ownerId,
+      "payment.authorized",
+      "Pago protegido autorizado",
+      `El pago demo de ${booking.title} fue autorizado.`,
+    );
     rememberIdempotentResponse(req, 201, result);
     await save(db);
     return res.status(201).json(result);
@@ -2152,6 +2256,13 @@ app.post("/api/payments/:bookingId/release", requireAuth, async (req, res) => {
       amount: booking.amount,
       professionalId: booking.professionalId,
     });
+    notify(
+      db,
+      professionalAccount?.id,
+      "payment.released",
+      "Cobro disponible",
+      `El cobro demo de ${booking.title} ya estÃ¡ disponible en tu billetera.`,
+    );
     const result = { demo: true, status: booking.paymentStatus };
     rememberIdempotentResponse(req, 200, result);
     await save(db);
@@ -2298,6 +2409,16 @@ app.post("/api/messages", requireAuth, async (req, res) => {
     readAt: null,
   };
   db.messages.push(message);
+  const professional = db.professionals.find(
+    (item) => item.id === message.professionalId,
+  );
+  notify(
+    db,
+    professional?.ownerId,
+    "message.received",
+    "Nuevo mensaje",
+    `${req.profile.name}: ${message.text.slice(0, 120)}`,
+  );
   rememberIdempotentResponse(req, 201, message);
   await save(db);
   res.status(201).json(message);
@@ -2335,6 +2456,13 @@ app.post("/api/professional/messages", requireAuth, async (req, res) => {
     readAt: null,
   };
   req.db.messages.push(message);
+  notify(
+    req.db,
+    message.clientId,
+    "message.received",
+    "Nuevo mensaje",
+    `${professional.name}: ${message.text.slice(0, 120)}`,
+  );
   audit(req.db, req.account, "message.sent", "message", message.id, {
     actor: "professional",
   });
@@ -2463,6 +2591,13 @@ app.post(
     trackGrowthEvent(db, req.account, "review.created", {
       category: professional.role,
     });
+    notify(
+      db,
+      professional.ownerId,
+      "review.created",
+      "Nueva reseÃ±a recibida",
+      `${req.profile.name} dejÃ³ una calificaciÃ³n de ${review.rating}/5.`,
+    );
     await save(db);
     res.status(201).json(review);
   },
@@ -2498,6 +2633,14 @@ app.post("/api/verifications", requireAuth, async (req, res) => {
     createdAt: new Date().toISOString(),
   };
   db.verifications.push(request);
+  for (const admin of db.authUsers.filter((user) => user.role === "admin"))
+    notify(
+      db,
+      admin.id,
+      "verification.requested",
+      "Nueva verificaciÃ³n para revisar",
+      `${req.profile.name} solicitÃ³ verificaciÃ³n de ${kind}.`,
+    );
   await save(db);
   res
     .status(201)

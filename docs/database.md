@@ -18,6 +18,8 @@ La primera ejecución crea datos de demostración solo fuera de producción. En 
 
 ## Modelo
 
+Las migraciones se ejecutan al inicio en orden lexicogrÃ¡fico y quedan registradas en `schema_migrations`. Las migraciones adicionales viven en [`database/migrations`](../database/migrations); `003_stripe_webhook_events.sql` conserva identificadores de webhooks por 30 dÃ­as para deduplicar reintentos firmados.
+
 Las entidades tienen tablas propias con claves foráneas e índices: `accounts`, `user_profiles`, `professionals`, `jobs`, `bookings`, `messages`, `transactions`, `reviews`, `verifications`, `audit_log` y `growth_events`.
 
 Durante la transición, cada agregado conserva parte de sus atributos en la columna `payload` JSONB. Esto mantiene el contrato de la API mientras se normalizan atributos de búsqueda y reportes de forma incremental. Las claves, relaciones, versiones de estado y campos de seguridad ya son relacionales.

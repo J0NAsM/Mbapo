@@ -9,6 +9,21 @@
   --orange: #efb442;
   --white: #fff;
 }
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  transform: translateY(-150%);
+  padding: 10px 14px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: #fff;
+  font-weight: 700;
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
 * {
   box-sizing: border-box;
 }
@@ -1489,6 +1504,21 @@ main {
   font: 11px inherit;
   color: var(--ink);
 }
+.admin-search {
+  display: grid;
+  gap: 5px;
+  max-width: 360px;
+  margin: 10px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.admin-search input {
+  border: 1px solid #d7dfdd;
+  border-radius: 6px;
+  padding: 8px;
+  font: inherit;
+  color: var(--ink);
+}
 .admin-row button {
   padding: 8px 10px;
   font-size: 10px;
@@ -1780,6 +1810,42 @@ main {
 }
 .profile-options article > div {
   flex: 1;
+}
+.profile-options article.notification-card {
+  align-items: flex-start;
+}
+.notification-list {
+  list-style: none;
+  display: grid;
+  gap: 7px;
+  padding: 0;
+  margin: 9px 0 0;
+}
+.notification-list li {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: #fbfcfb;
+}
+.notification-list li.unread {
+  border-color: #b7d5c1;
+  background: #f1f8f3;
+}
+.notification-list b,
+.notification-list p,
+.notification-list small {
+  display: block;
+}
+.notification-list p {
+  margin: 3px 0;
+}
+.notification-list small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.notification-list .link-btn {
+  margin-top: 5px;
 }
 .profile-options h3 {
   margin: 0;

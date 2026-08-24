@@ -8,9 +8,13 @@
 - Resolución administrativa de verificaciones y actualización de identidad/perfil verificado.
 - Conversaciones reales, selección de hilo, timestamps ISO y marcas de lectura.
 - `Idempotency-Key` para reservas, pagos, mensajes y retiros; respuestas reejecutadas durante 24 horas.
+- Eventos Stripe procesados se registran por `event.id` durante 30 días para ignorar reentregas de webhook.
 - Logout con revocación de sesión, cuentas bloqueables, request IDs, logs estructurados y métricas técnicas de administrador.
 - Migraciones PostgreSQL ordenadas y `UPSERT` por entidad; se eliminó el `TRUNCATE` global.
 - Inicio de migración TypeScript mediante `src/lib/api.ts`.
+- `tsc --noEmit`, pruebas de manifiesto/PWA y controles básicos de accesibilidad integrados en CI.
+- Healthchecks para PostgreSQL y aplicación; `compose.yaml` puede levantar el stack local completo.
+- Catálogo y trabajos admiten paginación y ordenamiento por consulta, manteniendo arreglos como cuerpo de respuesta y metadatos en cabeceras `X-Total-Count`, `X-Page` y `X-Page-Size`.
 
 ## Pendiente técnico concreto
 
@@ -21,4 +25,6 @@
 
 ## Archivos principales modificados
 
-`server.js`, `src/main.jsx`, `src/lib/api.ts`, `database/migrations/002_account_status_notifications_idempotency.sql`, `test/api.test.js`.
+`server.js`, `src/main.jsx`, `src/lib/api.ts`, `database/migrations/002_account_status_notifications_idempotency.sql`, `database/migrations/003_stripe_webhook_events.sql`, `test/api.test.js`.
+
+Siguiente paso: separar repositorios PostgreSQL por agregado y sumar una prueba de integraciÃ³n contra PostgreSQL real en CI. Los avisos internos ya tienen centro de lectura y eventos de reservas, pagos demo, mensajes, reseÃ±as y verificaciones.
