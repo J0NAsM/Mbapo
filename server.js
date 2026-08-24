@@ -2715,6 +2715,24 @@ app.post(
     const id = Number(req.params.professionalId);
     if (!input.success || !Number.isInteger(id))
       return fail(res, "Ingresá una calificación y un comentario válido");
+    if (reviewsRepository) {
+      const result = await reviewsRepository.createWithEffects({
+        professionalId: id,
+        bookingId: input.data.bookingId,
+        accountId: req.account.id,
+        author: req.profile.name,
+        rating: input.data.rating,
+        comment: input.data.comment,
+        createdAt: new Date().toISOString(),
+        growthEventId: `evt-${randomBytes(10).toString("hex")}`,
+        notificationId: `ntf-${randomBytes(10).toString("hex")}`,
+      });
+      if (result.duplicate)
+        return fail(res, "Este servicio ya fue calificado", 409);
+      if (!result.allowed && !result.review)
+        return fail(res, "Solo podés calificar un servicio finalizado", 403);
+      return res.status(201).json(result.review);
+    }
     const db = req.db;
     const professional = db.professionals.find((item) => item.id === id);
     const booking = db.bookings.find(
