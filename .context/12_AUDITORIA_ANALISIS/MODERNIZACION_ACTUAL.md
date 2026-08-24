@@ -52,3 +52,5 @@ La vista de trabajos tambiÃ©n consume `GET /api/jobs` con categorÃ­a, orden 
 Se retiraron los componentes de demostración inactivos de mensajes, modal y calendario. La navegación de agenda renderiza directamente `BookingAgenda`, que opera reservas reales y acciones de pago demo.
 
 `src/components/BookingAgenda.tsx` migra a TypeScript la agenda, las transiciones de reserva, autorización/liberación demo y el formulario de reseña. Las acciones permanecen sujetas a las validaciones de estado del servidor.
+
+`server/persistence/accounts.js` habilita búsqueda paginada de cuentas por nombre, correo, rol o estado. El panel administrativo consume `/api/admin/users` con búsqueda remota y paginación, y la integración PostgreSQL cubre ese contrato.

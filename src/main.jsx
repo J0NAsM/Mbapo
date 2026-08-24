@@ -2203,6 +2203,9 @@ function AdminPanel({ session, onLogout, announce }) {
   const [platformDraft, setPlatformDraft] = useState("");
   const [error, setError] = useState("");
   const [accountQuery, setAccountQuery] = useState("");
+  const [accountPage, setAccountPage] = useState(1);
+  const [accountResults, setAccountResults] = useState(null);
+  const [accountRevision, setAccountRevision] = useState(0);
   const headers = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${session.token}`,
@@ -2230,6 +2233,36 @@ function AdminPanel({ session, onLogout, announce }) {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    setAccountPage(1);
+  }, [accountQuery]);
+  useEffect(() => {
+    let current = true;
+    const timer = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({
+          query: accountQuery,
+          page: String(accountPage),
+          limit: "15",
+        });
+        const response = await fetch(`/api/admin/users?${params}`, {
+          headers,
+        });
+        const data = await response.json();
+        if (!response.ok) throw Error(data.error);
+        if (current) setAccountResults(data);
+      } catch (requestError) {
+        if (current)
+          setError(requestError.message || "No pudimos buscar cuentas.");
+      }
+    }, 180);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+    // session token and revision deliberately control this request lifecycle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountPage, accountQuery, accountRevision, session.token]);
   const request = async (url, method, body) => {
     const response = await fetch(url, {
       method,
@@ -2239,6 +2272,7 @@ function AdminPanel({ session, onLogout, announce }) {
     const data = await response.json();
     if (!response.ok) throw Error(data.error);
     await load();
+    setAccountRevision((current) => current + 1);
     return data;
   };
   const savePlatform = async () => {
@@ -2308,15 +2342,7 @@ function AdminPanel({ session, onLogout, announce }) {
       setError(err.message);
     }
   };
-  const visibleUsers = useMemo(() => {
-    const query = accountQuery.trim().toLocaleLowerCase("es-PY");
-    if (!query) return state?.users || [];
-    return (state?.users || []).filter((user) =>
-      `${user.name} ${user.email} ${user.role} ${user.status || "active"}`
-        .toLocaleLowerCase("es-PY")
-        .includes(query),
-    );
-  }, [accountQuery, state?.users]);
+  const visibleUsers = accountResults?.items || state?.users || [];
   if (!state)
     return (
       <section className="admin-page">
@@ -2559,6 +2585,33 @@ function AdminPanel({ session, onLogout, announce }) {
           </div>
         ))}
         {!visibleUsers.length && <p className="empty">Sin coincidencias.</p>}
+        {accountResults && accountResults.total > accountResults.limit && (
+          <nav
+            className="catalog-pagination"
+            aria-label="Paginación de cuentas"
+          >
+            <button
+              className="filter"
+              disabled={accountPage <= 1}
+              onClick={() => setAccountPage((page) => Math.max(1, page - 1))}
+            >
+              Anterior
+            </button>
+            <span>
+              Página {accountResults.page} de{" "}
+              {Math.ceil(accountResults.total / accountResults.limit)}
+            </span>
+            <button
+              className="filter"
+              disabled={
+                accountPage * accountResults.limit >= accountResults.total
+              }
+              onClick={() => setAccountPage((page) => page + 1)}
+            >
+              Siguiente
+            </button>
+          </nav>
+        )}
       </section>
       <section className="admin-section">
         <div>

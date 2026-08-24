@@ -90,6 +90,23 @@ test(
       assert.equal(ownVerifications.status, 200);
       assert.equal((await ownVerifications.json())[0].kind, "identity");
 
+      const adminLogin = await fetch(`${url}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: "admin@mbapo.local",
+          password: "MbapoAdmin!2026",
+        }),
+      });
+      assert.equal(adminLogin.status, 200);
+      const admin = await adminLogin.json();
+      const accountSearch = await fetch(
+        `${url}/api/admin/users?query=Prueba%20PostgreSQL&limit=5`,
+        { headers: { Authorization: `Bearer ${admin.token}` } },
+      );
+      assert.equal(accountSearch.status, 200);
+      assert.equal((await accountSearch.json()).total, 1);
+
       const dashboard = await fetch(`${url}/api/dashboard`, { headers });
       assert.equal(dashboard.status, 200);
       assert.ok((await dashboard.json()).bookings.length >= 1);

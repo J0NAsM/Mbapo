@@ -198,6 +198,17 @@ test("atribuye referidos y expone métricas de crecimiento solo al administrador
   const metricData = await metrics.json();
   assert.ok(metricData.funnel.registrations >= 2);
   assert.equal(metricData.funnel.catalogSearches, 1);
+
+  const userSearch = await fetch(
+    `${url}/api/admin/users?query=referida&limit=1`,
+    {
+      headers: { Authorization: `Bearer ${admin.token}` },
+    },
+  );
+  assert.equal(userSearch.status, 200);
+  const userSearchData = await userSearch.json();
+  assert.equal(userSearchData.total, 1);
+  assert.equal(userSearchData.items[0].email, "referida@example.com");
 });
 
 test("vincula una cuenta profesional y restringe su operación a sus propias reservas", async () => {

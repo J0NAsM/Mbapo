@@ -22,6 +22,7 @@ import { createReviewsRepository } from "./server/persistence/reviews.js";
 import { createVerificationsRepository } from "./server/persistence/verifications.js";
 import { createBookingsRepository } from "./server/persistence/bookings.js";
 import { createCatalogRepository } from "./server/persistence/catalog.js";
+import { createAccountsRepository } from "./server/persistence/accounts.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.MBAPO_DATA_PATH || join(root, "data", "mbapo.json");
@@ -152,6 +153,7 @@ const reviewsRepository = createReviewsRepository(pool);
 const verificationsRepository = createVerificationsRepository(pool);
 const bookingsRepository = createBookingsRepository(pool);
 const catalogRepository = createCatalogRepository(pool);
+const accountsRepository = createAccountsRepository(pool);
 const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
@@ -1303,6 +1305,35 @@ app.get("/api/admin/state", requireAdmin, async (_req, res) => {
     verifications: db.verifications,
     bookings: db.bookings,
     transactions: db.transactions,
+  });
+});
+app.get("/api/admin/users", requireAdmin, async (req, res) => {
+  const query = String(req.query.query || "")
+    .trim()
+    .slice(0, 100);
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+  if (accountsRepository) {
+    const result = await accountsRepository.findPage({ query, page, limit });
+    return res.json({
+      items: result.items,
+      page,
+      limit,
+      total: result.total,
+    });
+  }
+  const db = await database();
+  const normalized = query.toLocaleLowerCase("es-PY");
+  const items = db.authUsers.filter((user) =>
+    `${user.name} ${user.email} ${user.role} ${user.status || "active"}`
+      .toLocaleLowerCase("es-PY")
+      .includes(normalized),
+  );
+  res.json({
+    items: items.slice((page - 1) * limit, page * limit).map(publicUser),
+    page,
+    limit,
+    total: items.length,
   });
 });
 app.put("/api/admin/platform", requireAdmin, async (req, res) => {
