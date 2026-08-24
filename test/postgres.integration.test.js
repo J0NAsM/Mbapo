@@ -65,6 +65,10 @@ test(
       assert.equal(conversations.status, 200);
       assert.equal((await conversations.json())[0].professionalId, 1);
 
+      const reviews = await fetch(`${url}/api/professionals/1/reviews?limit=5`);
+      assert.equal(reviews.status, 200);
+      assert.ok(Array.isArray((await reviews.json()).items));
+
       const dashboard = await fetch(`${url}/api/dashboard`, { headers });
       assert.equal(dashboard.status, 200);
       assert.ok((await dashboard.json()).bookings.length >= 1);

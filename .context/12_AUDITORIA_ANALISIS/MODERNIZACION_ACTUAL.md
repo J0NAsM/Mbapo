@@ -36,3 +36,5 @@ El descubrimiento consume el catÃ¡logo paginado real con filtros, orden y meta
 La vista de trabajos tambiÃ©n consume `GET /api/jobs` con categorÃ­a, orden y paginaciÃ³n reales, conservando el listado del dashboard como respaldo sin conexiÃ³n.
 
 `server/persistence/messages.js` mueve a PostgreSQL por entidad las lecturas de hilos, conversaciones y marcas de lectura. La prueba de integraciÃ³n PostgreSQL cubre ahora reserva, mensaje, hilo, conversación, dashboard y avisos.
+
+`server/persistence/reviews.js` pagina reseñas públicas directamente desde PostgreSQL y valida la existencia del profesional en la misma consulta por agregado.

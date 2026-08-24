@@ -18,6 +18,7 @@ import { createObservability } from "./server/observability.js";
 import { applyMigrations } from "./server/persistence/migrations.js";
 import { createNotificationsRepository } from "./server/persistence/notifications.js";
 import { createMessagesRepository } from "./server/persistence/messages.js";
+import { createReviewsRepository } from "./server/persistence/reviews.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.MBAPO_DATA_PATH || join(root, "data", "mbapo.json");
@@ -144,6 +145,7 @@ const pool = process.env.DATABASE_URL
   : null;
 const notificationsRepository = createNotificationsRepository(pool);
 const messagesRepository = createMessagesRepository(pool);
+const reviewsRepository = createReviewsRepository(pool);
 const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
@@ -2497,12 +2499,17 @@ app.post("/api/withdrawals", requireAuth, async (req, res) => {
   res.status(201).json(result);
 });
 app.get("/api/professionals/:professionalId/reviews", async (req, res) => {
-  const db = await database();
   const id = Number(req.params.professionalId);
-  if (!db.professionals.some((item) => item.id === id))
-    return fail(res, "Profesional no encontrado", 404);
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+  if (reviewsRepository) {
+    const result = await reviewsRepository.findPage(id, page, limit);
+    if (!result.exists) return fail(res, "Profesional no encontrado", 404);
+    return res.json({ ...result, page, limit });
+  }
+  const db = await database();
+  if (!db.professionals.some((item) => item.id === id))
+    return fail(res, "Profesional no encontrado", 404);
   const reviews = db.reviews
     .filter((review) => review.professionalId === id)
     .sort(
