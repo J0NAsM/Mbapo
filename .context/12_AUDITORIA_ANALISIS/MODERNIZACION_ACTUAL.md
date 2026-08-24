@@ -34,3 +34,5 @@ ActualizaciÃ³n de modularizaciÃ³n: `server/observability.js` concentra reque
 El descubrimiento consume el catÃ¡logo paginado real con filtros, orden y metadatos HTTP; el filtrado local queda solamente como respaldo cuando la API no responde. `server/persistence/notifications.js` opera la lectura y marcado de avisos directamente por entidad en PostgreSQL.
 
 La vista de trabajos tambiÃ©n consume `GET /api/jobs` con categorÃ­a, orden y paginaciÃ³n reales, conservando el listado del dashboard como respaldo sin conexiÃ³n.
+
+`server/persistence/messages.js` mueve a PostgreSQL por entidad las lecturas de hilos, conversaciones y marcas de lectura. La prueba de integraciÃ³n PostgreSQL cubre ahora reserva, mensaje, hilo, conversación, dashboard y avisos.

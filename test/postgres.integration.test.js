@@ -47,6 +47,24 @@ test(
       });
       assert.equal(booking.status, 201);
 
+      const sentMessage = await fetch(`${url}/api/messages`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          professionalId: 1,
+          text: "Mensaje de persistencia PostgreSQL.",
+        }),
+      });
+      assert.equal(sentMessage.status, 201);
+      const thread = await fetch(`${url}/api/messages/1`, { headers });
+      assert.equal(thread.status, 200);
+      assert.equal((await thread.json()).at(-1).author, "client");
+      const conversations = await fetch(`${url}/api/conversations`, {
+        headers,
+      });
+      assert.equal(conversations.status, 200);
+      assert.equal((await conversations.json())[0].professionalId, 1);
+
       const dashboard = await fetch(`${url}/api/dashboard`, { headers });
       assert.equal(dashboard.status, 200);
       assert.ok((await dashboard.json()).bookings.length >= 1);

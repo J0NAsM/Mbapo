@@ -17,6 +17,7 @@ import { z } from "zod";
 import { createObservability } from "./server/observability.js";
 import { applyMigrations } from "./server/persistence/migrations.js";
 import { createNotificationsRepository } from "./server/persistence/notifications.js";
+import { createMessagesRepository } from "./server/persistence/messages.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.MBAPO_DATA_PATH || join(root, "data", "mbapo.json");
@@ -142,6 +143,7 @@ const pool = process.env.DATABASE_URL
     })
   : null;
 const notificationsRepository = createNotificationsRepository(pool);
+const messagesRepository = createMessagesRepository(pool);
 const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
@@ -2303,6 +2305,16 @@ app.get("/api/conversations", requireAuth, async (req, res) => {
       "Tu cuenta profesional aÃºn no estÃ¡ vinculada a un perfil",
       403,
     );
+  if (messagesRepository) {
+    const professional =
+      req.account.role === "professional"
+        ? professionalForAccount(req.db, req.account)
+        : null;
+    const messages = professional
+      ? await messagesRepository.listForProfessional(professional.id)
+      : await messagesRepository.listForClient(req.account.id);
+    return res.json(conversationsFor({ ...req.db, messages }, req.account));
+  }
   res.json(conversationsFor(req.db, req.account));
 });
 app.get("/api/messages/:professionalId", requireAuth, async (req, res) => {
@@ -2321,15 +2333,17 @@ app.get("/api/messages/:professionalId", requireAuth, async (req, res) => {
     ? String(req.query.clientId || "")
     : req.account.id;
   if (!clientId) return fail(res, "IndicÃ¡ el cliente de la conversaciÃ³n");
-  const messages = db.messages
-    .filter(
-      (message) =>
-        message.professionalId === professionalId &&
-        message.clientId === clientId,
-    )
-    .sort(
-      (left, right) => new Date(left.createdAt) - new Date(right.createdAt),
-    );
+  const messages = messagesRepository
+    ? await messagesRepository.listThread(professionalId, clientId)
+    : db.messages
+        .filter(
+          (message) =>
+            message.professionalId === professionalId &&
+            message.clientId === clientId,
+        )
+        .sort(
+          (left, right) => new Date(left.createdAt) - new Date(right.createdAt),
+        );
   res.json(messages);
 });
 app.post("/api/messages", requireAuth, async (req, res) => {
@@ -2434,6 +2448,16 @@ app.patch("/api/messages/:id/read", requireAuth, async (req, res) => {
     ? message.professionalId === professional.id && message.author === "client"
     : message.clientId === req.account.id && message.author === "professional";
   if (!allowed) return fail(res, "No tenÃ©s acceso a este mensaje", 403);
+  if (messagesRepository) {
+    const updated = professional
+      ? await messagesRepository.markReadByProfessional(
+          message.id,
+          professional.id,
+        )
+      : await messagesRepository.markReadByClient(message.id, req.account.id);
+    if (!updated) return fail(res, "Mensaje no encontrado", 404);
+    return res.json({ id: updated.id, readAt: updated.readAt });
+  }
   if (!message.readAt) message.readAt = new Date().toISOString();
   await save(req.db);
   res.json({ id: message.id, readAt: message.readAt });
