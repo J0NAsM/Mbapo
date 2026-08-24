@@ -97,6 +97,8 @@ La moderación administrativa de reservas usa el mismo agregado PostgreSQL de re
 
 El onboarding profesional y `PUT /api/professional/availability` usan ahora operaciones PostgreSQL por entidad: crean o actualizan el perfil, migran rol y token cuando corresponde, y registran disponibilidad y auditoría sin reescribir el estado completo.
 
+`server/persistence/profiles.js` extrae el autoservicio del cliente a PostgreSQL por entidad: `PATCH /api/profile`, favoritos y búsquedas guardadas bloquean únicamente `user_profiles`; la creación guarda también `saved_search.created` en `growth_events` dentro de la misma transacción. `POST /api/events` inserta analítica mínima directamente y el marcado de notificaciones ya usaba su repositorio propio. El fallback JSON conserva los contratos existentes sin `DATABASE_URL`.
+
 `src/components/AdminPanel.tsx` extrae el panel administrativo real a TypeScript estricto, con contratos para estado, métricas, cuentas, profesionales, trabajos, verificaciones y configuración. Conserva deliberadamente el token administrativo aislado de la sesión normal, la recarga posterior a mutaciones y la búsqueda paginada con debounce.
 
 `GET /api/professionals/:professionalId/availability?date=YYYY-MM-DD` entrega franjas libres calculadas desde la disponibilidad semanal y reservas activas. El formulario de reserva consulta ese contrato al elegir fecha, evita horarios fijos y conserva la validación final de solapamientos en el servidor.

@@ -28,6 +28,8 @@ Las escrituras usan una versión optimista de estado: si otra operación guardó
 
 La mensajería ya persiste por entidad: mensaje, aviso interno, auditoría e idempotencia se escriben en sus tablas sin reescribir el estado completo. Las solicitudes de verificación también se guardan junto con sus avisos administrativos, con control transaccional de duplicados pendientes. La publicación de reseñas persiste en una sola transacción la validación de la reserva, la reseña única, la reputación profesional, auditoría, analítica y el aviso. El CRUD administrativo de profesionales y trabajos también bloquea y modifica solo su fila; los archivados guardan la auditoría en la misma transacción. Los demás flujos continúan en transición y conservan el guardado compatible por snapshot hasta extraer cada transacción de dominio de forma atómica.
 
+El autoservicio de cuenta usa `server/persistence/profiles.js`: perfil, favoritos y búsquedas guardadas bloquean y actualizan únicamente `user_profiles`; al crear una búsqueda se registra su evento de producto en la misma transacción. Los eventos explícitos se insertan directamente en `growth_events`, y la lectura de notificaciones ya opera por su propia tabla. El archivo JSON sigue siendo el fallback de desarrollo cuando no hay `DATABASE_URL`.
+
 `growth_events` solo conserva eventos mínimos de producto —por ejemplo, registro, búsqueda, reserva y referido— para medir embudos. No se deben registrar direcciones exactas, texto de conversaciones, documentos, contraseñas ni identificadores publicitarios.
 
 ## Producción

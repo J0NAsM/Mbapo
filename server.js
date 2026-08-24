@@ -25,6 +25,7 @@ import { createWalletRepository } from "./server/persistence/wallet.js";
 import { createPlatformRepository } from "./server/persistence/platform.js";
 import { createCatalogRepository } from "./server/persistence/catalog.js";
 import { createAccountsRepository } from "./server/persistence/accounts.js";
+import { createProfilesRepository } from "./server/persistence/profiles.js";
 import {
   availableBookingSlots,
   bookingOverlaps,
@@ -165,6 +166,7 @@ const walletRepository = createWalletRepository(pool);
 const platformRepository = createPlatformRepository(pool);
 const catalogRepository = createCatalogRepository(pool);
 const accountsRepository = createAccountsRepository(pool);
+const profilesRepository = createProfilesRepository(pool);
 const stripe = process.env.STRIPE_SECRET_KEY
   ? new Stripe(process.env.STRIPE_SECRET_KEY)
   : null;
@@ -2058,6 +2060,19 @@ app.post("/api/events", requireAuth, async (req, res) => {
     })
     .safeParse(req.body);
   if (!input.success) return fail(res, "Evento de producto inválido");
+  if (profilesRepository) {
+    await profilesRepository.recordEvent({
+      id: `evt-${randomBytes(10).toString("hex")}`,
+      actorId: req.account.id,
+      name: input.data.name,
+      metadata: {
+        category: input.data.category,
+        zone: input.data.zone,
+      },
+      occurredAt: new Date().toISOString(),
+    });
+    return res.status(204).end();
+  }
   trackGrowthEvent(req.db, req.account, input.data.name, {
     category: input.data.category,
     zone: input.data.zone,
@@ -2067,18 +2082,39 @@ app.post("/api/events", requireAuth, async (req, res) => {
 });
 app.patch("/api/profile", requireAuth, async (req, res) => {
   const { name, skill, hourlyRate } = req.body;
-  if (name !== undefined) req.body.name = String(name).trim().slice(0, 80);
-  const db = req.db;
-  Object.assign(req.profile, {
-    ...(req.body.name ? { name: req.body.name } : {}),
+  const normalizedName =
+    name !== undefined ? String(name).trim().slice(0, 80) : undefined;
+  const changes = {
+    ...(normalizedName ? { name: normalizedName } : {}),
     ...(skill ? { skill: String(skill).slice(0, 80) } : {}),
     ...(hourlyRate ? { hourlyRate: money(hourlyRate) } : {}),
-  });
-  await save(db);
+  };
+  if (profilesRepository) {
+    const profile = await profilesRepository.update({
+      accountId: req.account.id,
+      fallbackProfile: req.profile,
+      changes,
+    });
+    return res.json(profile);
+  }
+  Object.assign(req.profile, changes);
+  await save(req.db);
   res.json(req.profile);
 });
 app.post("/api/favorites/:professionalId", requireAuth, async (req, res) => {
   const id = Number(req.params.professionalId);
+  if (profilesRepository) {
+    if (!Number.isInteger(id) || id < 1)
+      return fail(res, "Profesional no encontrado", 404);
+    const result = await profilesRepository.toggleFavorite({
+      accountId: req.account.id,
+      professionalId: id,
+      fallbackProfile: req.profile,
+    });
+    if (result.error === "professional")
+      return fail(res, "Profesional no encontrado", 404);
+    return res.json({ favorites: result.favorites });
+  }
   const db = req.db;
   if (!db.professionals.some((p) => p.id === id))
     return fail(res, "Profesional no encontrado", 404);
@@ -2090,6 +2126,10 @@ app.post("/api/favorites/:professionalId", requireAuth, async (req, res) => {
   res.json({ favorites });
 });
 app.get("/api/saved-searches", requireAuth, async (req, res) => {
+  if (profilesRepository)
+    return res.json(
+      await profilesRepository.listSavedSearches(req.account.id, req.profile),
+    );
   res.json(req.profile.savedSearches || []);
 });
 app.post("/api/saved-searches", requireAuth, async (req, res) => {
@@ -2110,6 +2150,28 @@ app.post("/api/saved-searches", requireAuth, async (req, res) => {
   if (!input.success) return fail(res, "Búsqueda guardada inválida");
   if (!input.data.query && input.data.category === "Todos")
     return fail(res, "Elegí una búsqueda o categoría antes de guardar");
+  const search = {
+    id: `search-${randomBytes(6).toString("hex")}`,
+    ...input.data,
+    createdAt: new Date().toISOString(),
+  };
+  if (profilesRepository) {
+    const result = await profilesRepository.createSavedSearch({
+      accountId: req.account.id,
+      fallbackProfile: req.profile,
+      search,
+      event: {
+        id: `evt-${randomBytes(10).toString("hex")}`,
+        actorId: req.account.id,
+        name: "saved_search.created",
+        metadata: { category: search.category },
+        occurredAt: search.createdAt,
+      },
+    });
+    if (result.error === "duplicate")
+      return fail(res, "Esa búsqueda ya está guardada", 409);
+    return res.status(201).json(result.search);
+  }
   const searches = req.profile.savedSearches || [];
   const duplicate = searches.some(
     (search) =>
@@ -2119,11 +2181,6 @@ app.post("/api/saved-searches", requireAuth, async (req, res) => {
         JSON.stringify(input.data.filters || {}),
   );
   if (duplicate) return fail(res, "Esa búsqueda ya está guardada", 409);
-  const search = {
-    id: `search-${randomBytes(6).toString("hex")}`,
-    ...input.data,
-    createdAt: new Date().toISOString(),
-  };
   searches.unshift(search);
   searches.splice(10);
   req.profile.savedSearches = searches;
@@ -2134,6 +2191,16 @@ app.post("/api/saved-searches", requireAuth, async (req, res) => {
   res.status(201).json(search);
 });
 app.delete("/api/saved-searches/:id", requireAuth, async (req, res) => {
+  if (profilesRepository) {
+    const result = await profilesRepository.deleteSavedSearch({
+      accountId: req.account.id,
+      fallbackProfile: req.profile,
+      searchId: req.params.id,
+    });
+    if (result.error === "missing")
+      return fail(res, "Búsqueda guardada no encontrada", 404);
+    return res.status(204).end();
+  }
   const searches = req.profile.savedSearches || [];
   const index = searches.findIndex((search) => search.id === req.params.id);
   if (index < 0) return fail(res, "Búsqueda guardada no encontrada", 404);

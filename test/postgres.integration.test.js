@@ -44,6 +44,81 @@ test(
         Authorization: `Bearer ${session.token}`,
         "Content-Type": "application/json",
       };
+      const profileUpdate = await fetch(`${url}/api/profile`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          name: "Prueba PostgreSQL actualizada",
+          skill: "Electricista",
+          hourlyRate: 125000,
+        }),
+      });
+      assert.equal(profileUpdate.status, 200);
+      const updatedProfile = await profileUpdate.json();
+      assert.equal(updatedProfile.name, "Prueba PostgreSQL actualizada");
+      assert.equal(updatedProfile.skill, "Electricista");
+      assert.equal(updatedProfile.hourlyRate, 125000);
+
+      const favoriteAdded = await fetch(`${url}/api/favorites/1`, {
+        method: "POST",
+        headers,
+      });
+      assert.equal(favoriteAdded.status, 200);
+      assert.deepEqual((await favoriteAdded.json()).favorites, [1]);
+      const favoriteRemoved = await fetch(`${url}/api/favorites/1`, {
+        method: "POST",
+        headers,
+      });
+      assert.equal(favoriteRemoved.status, 200);
+      assert.deepEqual((await favoriteRemoved.json()).favorites, []);
+
+      const savedSearch = await fetch(`${url}/api/saved-searches`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          query: "electricista",
+          category: "Electricidad",
+          filters: { verified: true, minRating: 4 },
+        }),
+      });
+      assert.equal(savedSearch.status, 201);
+      const savedSearchData = await savedSearch.json();
+      const duplicateSavedSearch = await fetch(`${url}/api/saved-searches`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          query: "electricista",
+          category: "Electricidad",
+          filters: { verified: true, minRating: 4 },
+        }),
+      });
+      assert.equal(duplicateSavedSearch.status, 409);
+      const listedSearches = await fetch(`${url}/api/saved-searches`, {
+        headers,
+      });
+      assert.equal(listedSearches.status, 200);
+      assert.equal((await listedSearches.json())[0].id, savedSearchData.id);
+      const deleteSavedSearch = await fetch(
+        `${url}/api/saved-searches/${savedSearchData.id}`,
+        { method: "DELETE", headers },
+      );
+      assert.equal(deleteSavedSearch.status, 204);
+      const emptySearches = await fetch(`${url}/api/saved-searches`, {
+        headers,
+      });
+      assert.deepEqual(await emptySearches.json(), []);
+
+      const trackedEvent = await fetch(`${url}/api/events`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          name: "catalog.searched",
+          category: "Electricidad",
+          zone: "Asunción",
+        }),
+      });
+      assert.equal(trackedEvent.status, 204);
+
       const bookingResponse = await fetch(`${url}/api/bookings`, {
         method: "POST",
         headers,
