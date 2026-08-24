@@ -72,3 +72,5 @@ La escritura de mensajes en PostgreSQL ya evita `savePostgres`: mensaje, notific
 Las nuevas solicitudes de verificación usan también una transacción PostgreSQL por entidad: evita solicitudes pendientes duplicadas y persiste los avisos de moderación sin llamar a `savePostgres`. La resolución administrativa seguirá siendo parte del siguiente agregado, porque actualiza simultáneamente solicitud, cuenta y perfil profesional.
 
 La creación de reseñas en PostgreSQL valida y bloquea la reserva finalizada, evita duplicados por reserva y actualiza de forma atómica la reseña, reputación del profesional, auditoría, evento de producto y notificación. El modo JSON conserva el flujo previo compatible.
+
+`src/components/Wallet.tsx` extrae la billetera de `main.jsx` con contratos tipados para saldo, escrow y movimientos, preservando el flujo de retiro demo.
