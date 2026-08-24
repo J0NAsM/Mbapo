@@ -19,12 +19,12 @@
 ## Pendiente técnico concreto
 
 - Extraer repositorios por agregado para que PostgreSQL no cargue el snapshot completo.
-- Cubrir PostgreSQL real en CI con un servicio de base de datos.
+- CI levanta PostgreSQL 16 y ejecuta una prueba de persistencia real; localmente se omite si no se define `MBAPO_TEST_DATABASE_URL`.
 - Terminar la conversión de componentes React y los contratos de dominio a TypeScript.
 - Reemplazar los componentes visuales legacy que siguen en `src/main.jsx` después de validar la interfaz nueva.
 
 ## Archivos principales modificados
 
-`server.js`, `src/main.jsx`, `src/lib/api.ts`, `database/migrations/002_account_status_notifications_idempotency.sql`, `database/migrations/003_stripe_webhook_events.sql`, `test/api.test.js`.
+`server.js`, `src/main.jsx`, `src/lib/api.ts`, `database/migrations/002_account_status_notifications_idempotency.sql`, `database/migrations/003_stripe_webhook_events.sql`, `test/api.test.js`, `test/postgres.integration.test.js`.
 
 Siguiente paso: separar repositorios PostgreSQL por agregado y sumar una prueba de integraciÃ³n contra PostgreSQL real en CI. Los avisos internos ya tienen centro de lectura y eventos de reservas, pagos demo, mensajes, reseÃ±as y verificaciones.
