@@ -1,3 +1,7 @@
+<!-- BEGIN ECOSYSTEM ENTRY -->
+Entrada vigente: [Mbapo — contexto](<.context/contexto.md>). Identidad, alcance, reglas y comandos se consultan desde esa entrada. La documentación histórica se conserva; sus fotografías de estado no acreditan la situación actual.
+<!-- END ECOSYSTEM ENTRY -->
+
 # Mbapo
 
 Marketplace de servicios locales para conectar clientes y profesionales. Incluye catálogo, trabajos, reservas, mensajería, reputación, verificación, administración, PWA y un flujo de pagos preparado para Stripe.

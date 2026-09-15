@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "PROJECT_ID": "mbapo",
+  "PROJECT_NAME": "Mbapo",
+  "TYPE": "web",
+  "TECH_STACK": "React/Vite, Express; PostgreSQL y persistencia alternativa JSON",
+  "TECH_STACK_SOURCE": [
+    "package.json"
+  ],
+  "ENVIRONMENT": "NO DETERMINADO",
+  "STATUS": "NO DETERMINADO",
+  "OBSERVED_STATE": "Marketplace de demostración.",
+  "VERSION_SOURCE": [
+    "package.json"
+  ],
+  "LAST_CONTEXT_UPDATE": "2026-09-14",
+  "LAST_VALIDATION": {
+    "date": "NO DETERMINADO",
+    "revision": "NO DETERMINADO",
+    "command": "NO DETERMINADO",
+    "result": "NO DETERMINADO"
+  },
+  "LAST_DEPLOY": "NO DETERMINADO",
+  "EXTERNAL_DEPENDENCIES": "Node, PostgreSQL según modalidad; proveedor de pagos solo si se habilita expresamente.",
+  "CONFIG_SOURCES": [
+    "compose.yaml",
+    "Dockerfile",
+    ".github/workflows/ci.yml"
+  ],
+  "SOURCE_HASHES": {
+    "package.json": "a4de544155512a76bb2ffbef9fc364adc3b1378743ce00d2c625f94d328786f4",
+    "compose.yaml": "72c8c449e3b2863dda397c3bd3d5d76b8686cd9871e2d53b2bc954d157295708",
+    "Dockerfile": "f0e904d5a0d4bcf70802e532de8eadc350d731d5e90ce6ea9e1c18c3a98ce406",
+    ".github/workflows/ci.yml": "deb2096446ab14c0a79d87a5f31e945df3b3fec3f4a57314e363ccf531ab9d39"
+  },
+  "VAULTS_ROOT_RELATIVE": "../Vaults/jmartinez"
+}
